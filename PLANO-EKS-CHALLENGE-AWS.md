@@ -22,16 +22,22 @@ flowchart LR
 
 ## Etapa 1 - Preparar aplicações para path-based routing
 
+- Garantir backend com CRUD completo de usuários:
+  - `POST /users` (Create)
+  - `GET /users` e `GET /users/{id}` (Read)
+  - `PUT /users/{id}` ou `PATCH /users/{id}` (Update)
+  - `DELETE /users/{id}` (Delete)
+- Implementar endpoint de `Update` no backend Go e validar comportamento (200/404/500).
 - Ajustar frontend Flask para funcionar atrás de prefixo `/frontend` e chamar backend via `/backend` (evitar acoplamento a host/porta internos).
 - Manter backend respondendo endpoints REST; opcionalmente adicionar suporte a prefixo `/backend` no Ingress sem mudar handlers do Go.
 - Validar localmente com Docker antes da infra cloud.
 
 Arquivos base para esta etapa:
-- [devops-hotmart-challenge/frontend/src/frontend/frontend.py](devops-hotmart-challenge/frontend/src/frontend/frontend.py)
-- [devops-hotmart-challenge/frontend/src/frontend/templates/index.html](devops-hotmart-challenge/frontend/src/frontend/templates/index.html)
-- [devops-hotmart-challenge/backend/main.go](devops-hotmart-challenge/backend/main.go)
-- [devops-hotmart-challenge/frontend/Dockerfile](devops-hotmart-challenge/frontend/Dockerfile)
-- [devops-hotmart-challenge/backend/Dockerfile](devops-hotmart-challenge/backend/Dockerfile)
+- [devops-system-design-challenge/frontend/src/frontend/frontend.py](devops-system-design-challenge/frontend/src/frontend/frontend.py)
+- [devops-system-design-challenge/frontend/src/frontend/templates/index.html](devops-system-design-challenge/frontend/src/frontend/templates/index.html)
+- [devops-system-design-challenge/backend/main.go](devops-system-design-challenge/backend/main.go)
+- [devops-system-design-challenge/frontend/Dockerfile](devops-system-design-challenge/frontend/Dockerfile)
+- [devops-system-design-challenge/backend/Dockerfile](devops-system-design-challenge/backend/Dockerfile)
 
 ## Etapa 2 - Infraestrutura AWS com Terraform
 
@@ -98,6 +104,7 @@ Arquivo sugerido:
 ## Critérios de aceite
 
 - Backend em 2 réplicas atrás de ALB.
+- Backend expõe CRUD completo (Create, Read, Update, Delete) para usuários.
 - Frontend e backend no mesmo domínio com paths distintos.
 - DNS resolvendo corretamente para ALB.
 - Certificado TLS válido via ACM.
