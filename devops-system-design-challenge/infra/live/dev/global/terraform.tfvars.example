@@ -1,0 +1,22 @@
+account_id               = "123456789012"
+github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+github_allowed_subs      = ["repo:org/repo:*", "repo:org/repo:ref:refs/heads/main"]
+state_bucket_name        = "my-terraform-state-bucket"
+lock_table_name          = "my-terraform-locks"
+
+# Exemplo para LocalStack/FLOCI:
+# aws_access_key_id                  = "test"
+# aws_secret_access_key              = "test"
+# aws_skip_credentials_validation    = true
+# aws_skip_metadata_api_check        = true
+# aws_skip_requesting_account_id     = true
+# aws_s3_use_path_style              = true
+# aws_endpoints = {
+#   s3       = "http://localhost:4566"
+#   dynamodb = "http://localhost:4566"
+#   iam      = "http://localhost:4566"
+#   sts      = "http://localhost:4566"
+#   ecr      = "http://localhost:4566"
+#   route53  = "http://localhost:4566"
+#   acm      = "http://localhost:4566"
+# }
