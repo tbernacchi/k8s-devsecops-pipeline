@@ -1,0 +1,30 @@
+name: Frontend Secure Pipeline
+
+on:
+  push:
+    paths:
+      - "apps/frontend/**"
+      - "infra/**"
+      - ".github/workflows/frontend.yml"
+      - ".github/workflows/reusable-app-pipeline.yml"
+  pull_request:
+    paths:
+      - "apps/frontend/**"
+      - "infra/**"
+      - ".github/workflows/frontend.yml"
+      - ".github/workflows/reusable-app-pipeline.yml"
+
+jobs:
+  frontend:
+    uses: ./.github/workflows/reusable-app-pipeline.yml
+    with:
+      app_name: frontend
+      app_path: apps/frontend
+      dockerfile_path: apps/frontend/Dockerfile
+      codeql_language: python
+      snyk_action: snyk/actions/python@master
+      dependency_file: apps/frontend/src/frontend/requirements.txt
+      deploy_name: frontend
+      container_name: frontend
+      route_prefix: /frontend
+    secrets: inherit

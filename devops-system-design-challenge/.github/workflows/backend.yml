@@ -1,0 +1,30 @@
+name: Backend Secure Pipeline
+
+on:
+  push:
+    paths:
+      - "apps/backend/**"
+      - "infra/**"
+      - ".github/workflows/backend.yml"
+      - ".github/workflows/reusable-app-pipeline.yml"
+  pull_request:
+    paths:
+      - "apps/backend/**"
+      - "infra/**"
+      - ".github/workflows/backend.yml"
+      - ".github/workflows/reusable-app-pipeline.yml"
+
+jobs:
+  backend:
+    uses: ./.github/workflows/reusable-app-pipeline.yml
+    with:
+      app_name: backend
+      app_path: apps/backend
+      dockerfile_path: apps/backend/Dockerfile
+      codeql_language: go
+      snyk_action: snyk/actions/golang@master
+      dependency_file: apps/backend/go.mod
+      deploy_name: backend
+      container_name: backend
+      route_prefix: /backend
+    secrets: inherit
