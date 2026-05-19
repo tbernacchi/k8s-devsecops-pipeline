@@ -4,7 +4,7 @@ This directory uses a reusable pipeline pattern to avoid duplication between app
 
 ## Files
 
-- `reusable-app-pipeline.yml`: shared CI/CD pipeline with security checks, image build/signing, deploy stages, DAST, policy gate, and prod rollout.
+- `reusable-app-pipeline.yml`: shared CI/CD pipeline with security checks, SonarQube scan + quality gate, Kyverno policy-as-code validation, image build/signing, deploy stages, DAST, policy gate, and prod rollout.
 - `frontend.yml`: caller workflow for the frontend app.
 - `backend.yml`: caller workflow for the backend app.
 
@@ -42,6 +42,16 @@ The reusable workflow expects these secrets in the repository/environment:
 - `PROD_KUBECONFIG_B64`
 - `STAGING_BASE_URL`
 - `PROD_BASE_URL`
+
+## Policy as Code (Kyverno)
+
+The reusable workflow includes a Kyverno policy-as-code step during container/IaC scanning.
+
+- It scans Kubernetes YAML files under `infra/helm/**` and `k8s/**`.
+- It currently enforces baseline checks like:
+  - `runAsNonRoot: true`
+  - `readOnlyRootFilesystem: true` for containers
+- If no Kubernetes manifests are found, the Kyverno step is skipped automatically.
 
 ## Add a new app in 5 steps
 

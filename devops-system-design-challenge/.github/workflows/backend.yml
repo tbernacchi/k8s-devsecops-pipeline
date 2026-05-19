@@ -22,7 +22,6 @@ jobs:
       app_path: apps/backend
       dockerfile_path: apps/backend/Dockerfile
       codeql_language: go
-      snyk_action: snyk/actions/golang@master
       dependency_file: apps/backend/go.mod
       deploy_name: backend
       container_name: backend

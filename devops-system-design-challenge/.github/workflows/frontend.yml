@@ -22,7 +22,6 @@ jobs:
       app_path: apps/frontend
       dockerfile_path: apps/frontend/Dockerfile
       codeql_language: python
-      snyk_action: snyk/actions/python@master
       dependency_file: apps/frontend/src/frontend/requirements.txt
       deploy_name: frontend
       container_name: frontend

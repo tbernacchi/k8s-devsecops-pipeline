@@ -15,9 +15,6 @@ on:
       codeql_language:
         required: true
         type: string
-      snyk_action:
-        required: true
-        type: string
       dependency_file:
         required: true
         type: string
@@ -30,6 +27,23 @@ on:
       route_prefix:
         required: true
         type: string
+    secrets:
+      SONAR_TOKEN:
+        required: false
+      SONAR_HOST_URL:
+        required: false
+      SNYK_TOKEN:
+        required: false
+      DEV_KUBECONFIG_B64:
+        required: false
+      STAGING_KUBECONFIG_B64:
+        required: false
+      PROD_KUBECONFIG_B64:
+        required: false
+      STAGING_BASE_URL:
+        required: false
+      PROD_BASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -72,6 +86,9 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: returntocorp/semgrep-action@v1
@@ -83,16 +100,26 @@ jobs:
       - if: inputs.codeql_language == 'go'
         uses: github/codeql-action/autobuild@v3
       - uses: github/codeql-action/analyze@v3
-      - name: SonarQube
-        continue-on-error: true
+      - name: SonarQube Scan
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         uses: SonarSource/sonarqube-scan-action@v5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
         with:
           args: >
             -Dsonar.projectKey=${{ github.repository }}-${{ inputs.app_name }}
             -Dsonar.sources=${{ inputs.app_path }}
+      - name: SonarQube Quality Gate
+        if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
+        with:
+          pollingTimeoutSec: "300"
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+      - name: SonarQube skipped
+        if: env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == ''
+        run: echo "Skipping SonarQube because SONAR_TOKEN/SONAR_HOST_URL are not configured."
 
   stage3_sca:
     name: "Stage 3 - SCA"
@@ -118,13 +145,25 @@ jobs:
           args: >
             --enableRetired
             --failOnCVSS 7
-      - name: Snyk
+      - name: Snyk (Go)
+        if: inputs.codeql_language == 'go'
         continue-on-error: true
-        uses: ${{ inputs.snyk_action }}
+        uses: snyk/actions/golang@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high --file=${{ inputs.dependency_file }}
+      - name: Snyk (Python)
+        if: inputs.codeql_language == 'python'
+        continue-on-error: true
+        uses: snyk/actions/python@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --file=${{ inputs.dependency_file }}
+      - name: Snyk skipped
+        if: inputs.codeql_language != 'go' && inputs.codeql_language != 'python'
+        run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
 
   stage4_container_iac_scanning:
     name: "Stage 4 - Container and IaC Scanning"
@@ -175,6 +214,54 @@ jobs:
           }
           EOF
           conftest test infra -p /tmp
+      - name: Kyverno policy-as-code validation
+        if: hashFiles('infra/helm/**/*.y*ml', 'k8s/**/*.y*ml') != ''
+        run: |
+          KYVERNO_VERSION="v1.12.5"
+          curl -sSfL "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION#v}_linux_x86_64.tar.gz" | tar xz
+          sudo mv kyverno /usr/local/bin/kyverno
+
+          cat <<'EOF' > /tmp/kyverno-ci-policies.yaml
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata:
+            name: require-pod-security-baseline
+          spec:
+            validationFailureAction: Enforce
+            background: false
+            rules:
+              - name: require-run-as-non-root
+                match:
+                  any:
+                    - resources:
+                        kinds:
+                          - Pod
+                validate:
+                  message: "runAsNonRoot must be set to true."
+                  pattern:
+                    spec:
+                      securityContext:
+                        runAsNonRoot: true
+              - name: require-read-only-root-filesystem
+                match:
+                  any:
+                    - resources:
+                        kinds:
+                          - Pod
+                validate:
+                  message: "Containers must set readOnlyRootFilesystem to true."
+                  foreach:
+                    - list: "request.object.spec.containers"
+                      pattern:
+                        securityContext:
+                          readOnlyRootFilesystem: true
+          EOF
+
+          shopt -s globstar nullglob
+          manifest_files=(infra/helm/**/*.yaml infra/helm/**/*.yml k8s/**/*.yaml k8s/**/*.yml)
+          for file in "${manifest_files[@]}"; do
+            kyverno apply /tmp/kyverno-ci-policies.yaml --resource "$file"
+          done
 
   stage5_build_sign_attest:
     name: "Stage 5 - Build and Artifact Signing"
@@ -238,7 +325,7 @@ jobs:
 
   deploy_staging:
     name: "Stage 7 - Staging Auto Deploy"
-    needs: deploy_dev
+    needs: [deploy_dev, stage5_build_sign_attest]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -299,7 +386,7 @@ jobs:
 
   deploy_prod:
     name: "Stage 11 - Prod Approval and Progressive Deploy"
-    needs: policy_gate
+    needs: [policy_gate, stage5_build_sign_attest]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
