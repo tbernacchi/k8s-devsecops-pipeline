@@ -3,14 +3,14 @@ name: Frontend Secure Pipeline
 on:
   push:
     paths:
-      - "apps/frontend/**"
-      - "infra/**"
+      - "devops-system-design-challenge/apps/frontend/**"
+      - "devops-system-design-challenge/infra/**"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
   pull_request:
     paths:
-      - "apps/frontend/**"
-      - "infra/**"
+      - "devops-system-design-challenge/apps/frontend/**"
+      - "devops-system-design-challenge/infra/**"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
 
@@ -19,10 +19,10 @@ jobs:
     uses: ./.github/workflows/reusable-app-pipeline.yml
     with:
       app_name: frontend
-      app_path: apps/frontend
-      dockerfile_path: apps/frontend/Dockerfile
+      app_path: devops-system-design-challenge/apps/frontend
+      dockerfile_path: devops-system-design-challenge/apps/frontend/Dockerfile
       codeql_language: python
-      dependency_file: apps/frontend/src/frontend/requirements.txt
+      dependency_file: devops-system-design-challenge/apps/frontend/src/frontend/requirements.txt
       deploy_name: frontend
       container_name: frontend
       route_prefix: /frontend

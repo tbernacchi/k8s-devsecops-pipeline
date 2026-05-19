@@ -3,14 +3,14 @@ name: Backend Secure Pipeline
 on:
   push:
     paths:
-      - "apps/backend/**"
-      - "infra/**"
+      - "devops-system-design-challenge/apps/backend/**"
+      - "devops-system-design-challenge/infra/**"
       - ".github/workflows/backend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
   pull_request:
     paths:
-      - "apps/backend/**"
-      - "infra/**"
+      - "devops-system-design-challenge/apps/backend/**"
+      - "devops-system-design-challenge/infra/**"
       - ".github/workflows/backend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
 
@@ -19,10 +19,10 @@ jobs:
     uses: ./.github/workflows/reusable-app-pipeline.yml
     with:
       app_name: backend
-      app_path: apps/backend
-      dockerfile_path: apps/backend/Dockerfile
+      app_path: devops-system-design-challenge/apps/backend
+      dockerfile_path: devops-system-design-challenge/apps/backend/Dockerfile
       codeql_language: go
-      dependency_file: apps/backend/go.mod
+      dependency_file: devops-system-design-challenge/apps/backend/go.mod
       deploy_name: backend
       container_name: backend
       route_prefix: /backend

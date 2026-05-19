@@ -1,6 +1,6 @@
 # GitHub Actions Reusable Workflows
 
-This directory uses a reusable pipeline pattern to avoid duplication between app workflows.
+This repository uses a reusable pipeline pattern to avoid duplication between app workflows.
 
 ## Files
 
@@ -23,7 +23,6 @@ Each caller workflow only defines:
 - `app_path`: app source directory.
 - `dockerfile_path`: Dockerfile path for the app.
 - `codeql_language`: language used by CodeQL (for example `python` or `go`).
-- `snyk_action`: Snyk action to run (language-specific action).
 - `dependency_file`: dependency manifest used by Snyk.
 - `deploy_name`: Kubernetes deployment name.
 - `container_name`: container name inside the deployment.
@@ -47,57 +46,8 @@ The reusable workflow expects these secrets in the repository/environment:
 
 The reusable workflow includes a Kyverno policy-as-code step during container/IaC scanning.
 
-- It scans Kubernetes YAML files under `infra/helm/**` and `k8s/**`.
+- It scans Kubernetes YAML files under `devops-system-design-challenge/infra/helm/**` and `devops-system-design-challenge/k8s/**`.
 - It currently enforces baseline checks like:
   - `runAsNonRoot: true`
   - `readOnlyRootFilesystem: true` for containers
 - If no Kubernetes manifests are found, the Kyverno step is skipped automatically.
-
-## Add a new app in 5 steps
-
-1. Create a new caller workflow in `.github/workflows/<app>.yml`.
-2. Configure `on.push.paths` and `on.pull_request.paths` for the new app folder.
-3. Add one job using `uses: ./.github/workflows/reusable-app-pipeline.yml`.
-4. Pass all required `with` inputs for that app.
-5. Use `secrets: inherit`.
-
-## Example caller skeleton
-
-```yaml
-name: Worker Secure Pipeline
-
-on:
-  push:
-    paths:
-      - "apps/worker/**"
-      - "infra/**"
-      - ".github/workflows/worker.yml"
-      - ".github/workflows/reusable-app-pipeline.yml"
-  pull_request:
-    paths:
-      - "apps/worker/**"
-      - "infra/**"
-      - ".github/workflows/worker.yml"
-      - ".github/workflows/reusable-app-pipeline.yml"
-
-jobs:
-  worker:
-    uses: ./.github/workflows/reusable-app-pipeline.yml
-    with:
-      app_name: worker
-      app_path: apps/worker
-      dockerfile_path: apps/worker/Dockerfile
-      codeql_language: go
-      snyk_action: snyk/actions/golang@master
-      dependency_file: apps/worker/go.mod
-      deploy_name: worker
-      container_name: worker
-      route_prefix: /worker
-    secrets: inherit
-```
-
-## Notes
-
-- Keep app-specific logic in callers only if strictly necessary.
-- Keep all shared quality/security/deploy gates in the reusable workflow.
-- When changing stage behavior, change the reusable workflow once instead of updating every app workflow.
