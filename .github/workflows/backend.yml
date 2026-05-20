@@ -1,6 +1,7 @@
 name: Backend Secure Pipeline
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "devops-system-design-challenge/apps/backend/**"

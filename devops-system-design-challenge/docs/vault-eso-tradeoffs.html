@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashiCorp Vault + External Secrets Operator — Trade-offs</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #1a1a1a;
+      background: #fafafa;
+    }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    p.subtitle { color: #555; margin-top: 0; margin-bottom: 32px; font-size: 0.95rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 40px;
+    }
+    thead tr { background: #1a1a2e; color: #fff; }
+    th { padding: 14px 18px; text-align: left; font-weight: 600; font-size: 0.9rem; letter-spacing: 0.03em; }
+    td { padding: 12px 18px; font-size: 0.9rem; vertical-align: top; border-bottom: 1px solid #eee; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #f5f7ff; }
+
+    .pro  { color: #16a34a; font-weight: 600; }
+    .con  { color: #dc2626; font-weight: 600; }
+    .neutral { color: #2563eb; font-weight: 600; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .tag-use   { background: #dcfce7; color: #15803d; }
+    .tag-skip  { background: #fee2e2; color: #b91c1c; }
+    .tag-learn { background: #dbeafe; color: #1d4ed8; }
+
+    h2 { margin-top: 40px; font-size: 1.2rem; }
+
+    .comparison-table th:first-child { width: 28%; }
+    .comparison-table td:nth-child(2),
+    .comparison-table td:nth-child(3) { text-align: center; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+
+<h1>HashiCorp Vault + External Secrets Operator (ESO)</h1>
+<p class="subtitle">When to use it, when to skip it, and what you gain vs what it costs.</p>
+
+<!-- ── WHEN TO USE ── -->
+<h2>When does Vault + ESO make sense?</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>Decision</th>
+      <th>Reason</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Pods need secrets at runtime (DB passwords, API keys)</td>
+      <td><span class="tag tag-use">USE IT</span></td>
+      <td>GitHub Secrets only exist during CI runs. ESO syncs Vault secrets into Kubernetes Secrets that pods can mount.</td>
+    </tr>
+    <tr>
+      <td>Automatic secret rotation</td>
+      <td><span class="tag tag-use">USE IT</span></td>
+      <td>Vault can generate and rotate credentials (DB, cloud IAM, TLS certs) on a TTL. GitHub Secrets are static and manual.</td>
+    </tr>
+    <tr>
+      <td>Audit trail — who accessed which secret, when</td>
+      <td><span class="tag tag-use">USE IT</span></td>
+      <td>Vault logs every read/write with full identity context. GitHub has no equivalent secret-access audit log.</td>
+    </tr>
+    <tr>
+      <td>Dynamic database credentials</td>
+      <td><span class="tag tag-use">USE IT</span></td>
+      <td>Vault's DB secrets engine generates short-lived, per-app credentials instead of a shared static password.</td>
+    </tr>
+    <tr>
+      <td>Multiple clusters / multiple teams sharing secrets</td>
+      <td><span class="tag tag-use">USE IT</span></td>
+      <td>Vault is a single source of truth. Without it, secrets are duplicated across clusters and repos.</td>
+    </tr>
+    <tr>
+      <td>Compliance requirements (PCI-DSS, SOC 2, HIPAA)</td>
+      <td><span class="tag tag-use">USE IT</span></td>
+      <td>Vault satisfies encryption-at-rest, access policies, audit logging, and break-glass procedures required by auditors.</td>
+    </tr>
+    <tr>
+      <td>Only CI/CD pipeline values (no runtime pod access needed)</td>
+      <td><span class="tag tag-skip">SKIP IT</span></td>
+      <td>GitHub Secrets cover this perfectly. Vault adds operational overhead with no benefit if pods never read secrets directly.</td>
+    </tr>
+    <tr>
+      <td>Solo project / early-stage startup / home lab</td>
+      <td><span class="tag tag-skip">SKIP IT</span></td>
+      <td>Vault requires HA storage backend, unsealing, token renewal, backup strategy — significant ops burden for small teams.</td>
+    </tr>
+    <tr>
+      <td>Learning Vault + ESO for interviews / certifications</td>
+      <td><span class="tag tag-learn">LEARN IT</span></td>
+      <td>High-value skill in Platform Engineering and DevSecOps roles. Vault + ESO is increasingly asked in senior-level interviews.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── TRADE-OFFS ── -->
+<h2>Trade-off summary</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Dimension</th>
+      <th>GitHub Secrets</th>
+      <th>Vault + ESO</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Secret scope</strong></td>
+      <td>CI/CD pipeline only</td>
+      <td>Pipeline + pods at runtime</td>
+    </tr>
+    <tr>
+      <td><strong>Rotation</strong></td>
+      <td>Manual</td>
+      <td>Automatic (TTL-based)</td>
+    </tr>
+    <tr>
+      <td><strong>Audit log</strong></td>
+      <td>None</td>
+      <td>Full access log in Vault</td>
+    </tr>
+    <tr>
+      <td><strong>Dynamic credentials</strong></td>
+      <td>No</td>
+      <td>Yes (DB, PKI, cloud IAM)</td>
+    </tr>
+    <tr>
+      <td><strong>Setup complexity</strong></td>
+      <td>Low — GitHub UI / CLI</td>
+      <td>High — Vault HA, ESO, policies, Terraform</td>
+    </tr>
+    <tr>
+      <td><strong>Operational burden</strong></td>
+      <td>Near zero</td>
+      <td>Unsealing, token renewal, backup, upgrades</td>
+    </tr>
+    <tr>
+      <td><strong>Cost</strong></td>
+      <td>Free</td>
+      <td>Free (OSS) but infra cost for HA</td>
+    </tr>
+    <tr>
+      <td><strong>Fine-grained access control</strong></td>
+      <td>Binary (has access or not)</td>
+      <td>Policy per app, per path, per team</td>
+    </tr>
+    <tr>
+      <td><strong>Multi-cluster secret sync</strong></td>
+      <td>Manual duplication</td>
+      <td>Native via ESO ClusterSecretStore</td>
+    </tr>
+    <tr>
+      <td><strong>Kubernetes Secret created?</strong></td>
+      <td>Only if you create it manually</td>
+      <td>Yes — ESO syncs Vault → K8s Secret automatically</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── HOW IT WORKS ── -->
+<h2>How it works (architecture)</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>Role</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>HashiCorp Vault</strong></td>
+      <td>Central secret store. Stores, encrypts, and controls access to secrets. Supports dynamic credentials, PKI, and cloud IAM integration.</td>
+    </tr>
+    <tr>
+      <td><strong>Terraform</strong></td>
+      <td>Provisions Vault itself (policies, auth methods, secret engines) as code. Makes Vault config reproducible and version-controlled.</td>
+    </tr>
+    <tr>
+      <td><strong>External Secrets Operator (ESO)</strong></td>
+      <td>Kubernetes controller. Watches <code>ExternalSecret</code> CRDs, fetches secrets from Vault, and creates/syncs native <code>kubernetes/Secret</code> objects.</td>
+    </tr>
+    <tr>
+      <td><strong>ExternalSecret CRD</strong></td>
+      <td>Declarative spec: "fetch <em>this path</em> from Vault and create a K8s Secret named <em>X</em> in namespace <em>Y</em>." Checked into Git — no actual secret value in the repo.</td>
+    </tr>
+    <tr>
+      <td><strong>ClusterSecretStore</strong></td>
+      <td>ESO resource that holds the Vault connection config (address, auth method). Reusable across namespaces.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:#888; font-size:0.82rem; margin-top: 32px;">
+  Generated during system-design-2026 DevSecOps pipeline study session · 2026-05-20
+</p>
+
+</body>
+</html>

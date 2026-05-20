@@ -378,7 +378,12 @@ jobs:
           echo "$KCFG" | base64 -d > "$kube_config"
           chmod 600 "$kube_config"
           export KUBECONFIG="$kube_config"
-          kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
+          if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
+            kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          else
+            kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
+          fi
           kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
 
   # ──────────────────────────────────────────────
@@ -402,7 +407,12 @@ jobs:
           echo "$KCFG" | base64 -d > "$kube_config"
           chmod 600 "$kube_config"
           export KUBECONFIG="$kube_config"
-          kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
+          if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
+            kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          else
+            kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
+          fi
           kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
 
   # ──────────────────────────────────────────────
@@ -475,7 +485,12 @@ jobs:
           echo "$KCFG" | base64 -d > "$kube_config"
           chmod 600 "$kube_config"
           export KUBECONFIG="$kube_config"
-          kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
+          if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
+            kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          else
+            kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
+          fi
           if ! kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=240s; then
             kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
             exit 1
