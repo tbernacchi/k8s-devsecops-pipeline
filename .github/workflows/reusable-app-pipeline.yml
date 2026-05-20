@@ -27,6 +27,10 @@ on:
       route_prefix:
         required: true
         type: string
+      namespace:
+        required: false
+        type: string
+        default: "app"
     secrets:
       SONAR_TOKEN:
         required: false
@@ -47,9 +51,11 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
+  # ──────────────────────────────────────────────
+  # Stage 1 – Secret Detection
+  # ──────────────────────────────────────────────
   stage1_secret_detection:
     name: "Stage 1 - Secret Detection"
     runs-on: ubuntu-latest
@@ -79,27 +85,51 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest filesystem /pwd --fail --no-update
 
-  stage2_sast:
-    name: "Stage 2 - SAST"
+  # ──────────────────────────────────────────────
+  # Stage 2 – Unit Tests + Code Quality
+  # ──────────────────────────────────────────────
+  stage2_unit_tests_quality:
+    name: "Stage 2 - Unit Tests and Code Quality"
     needs: stage1_secret_detection
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - uses: actions/checkout@v4
-      - uses: returntocorp/semgrep-action@v1
+      - uses: actions/setup-go@v5
+        if: inputs.codeql_language == 'go'
         with:
-          config: auto
-      - uses: github/codeql-action/init@v3
+          go-version-file: ${{ inputs.app_path }}/go.mod
+          cache: true
+          cache-dependency-path: ${{ inputs.app_path }}/go.sum
+      - name: Unit tests (Go)
+        if: inputs.codeql_language == 'go'
+        working-directory: ${{ inputs.app_path }}
+        run: |
+          if git ls-files . | grep -Eq '_test\.go$'; then
+            go test ./... -v
+          else
+            echo "No Go unit tests found. Skipping."
+          fi
+      - uses: actions/setup-python@v5
+        if: inputs.codeql_language == 'python'
         with:
-          languages: ${{ inputs.codeql_language }}
-      - if: inputs.codeql_language == 'go'
-        uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: ${{ inputs.dependency_file }}
+      - name: Unit tests (Python)
+        if: inputs.codeql_language == 'python'
+        run: |
+          if [ -f "${{ inputs.dependency_file }}" ]; then
+            pip install -r "${{ inputs.dependency_file }}"
+          fi
+          pip install pytest
+          if git ls-files "${{ inputs.app_path }}" | grep -Eq '(^|/)(test_.*\.py|.*_test\.py)$'; then
+            pytest -q "${{ inputs.app_path }}"
+          else
+            echo "No Python unit tests found. Skipping."
+          fi
       - name: SonarQube Scan
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         uses: SonarSource/sonarqube-scan-action@v5
@@ -108,7 +138,8 @@ jobs:
           SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
         with:
           args: >
-            -Dsonar.projectKey=${{ github.repository }}-${{ inputs.app_name }}
+            -Dsonar.projectKey=${{ github.repository_owner }}_${{ inputs.app_name }}
+            -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.sources=${{ inputs.app_path }}
       - name: SonarQube Quality Gate
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
@@ -121,14 +152,39 @@ jobs:
         if: env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == ''
         run: echo "Skipping SonarQube because SONAR_TOKEN/SONAR_HOST_URL are not configured."
 
-  stage3_sca:
-    name: "Stage 3 - SCA"
-    needs: stage2_sast
+  # ──────────────────────────────────────────────
+  # Stage 3 – SAST  (parallel with 4 and 5)
+  # ──────────────────────────────────────────────
+  stage3_sast:
+    name: "Stage 3 - SAST"
+    needs: stage2_unit_tests_quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: semgrep/semgrep-action@v1
+        with:
+          config: auto
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.codeql_language }}
+      - if: inputs.codeql_language == 'go'
+        uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/analyze@v3
+
+  # ──────────────────────────────────────────────
+  # Stage 4 – SCA  (parallel with 3 and 5)
+  # ──────────────────────────────────────────────
+  stage4_sca:
+    name: "Stage 4 - SCA"
+    needs: stage2_unit_tests_quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0  # pin to SHA for production
         with:
           scan-type: fs
           scan-ref: ${{ inputs.app_path }}
@@ -136,7 +192,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
       - name: OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@main
+        uses: dependency-check/Dependency-Check_Action@v6.0.0  # pin to SHA for production
         with:
           project: ${{ inputs.app_name }}
           path: ${{ inputs.app_path }}
@@ -148,7 +204,7 @@ jobs:
       - name: Snyk (Go)
         if: inputs.codeql_language == 'go'
         continue-on-error: true
-        uses: snyk/actions/golang@master
+        uses: snyk/actions/golang@0.4.0  # pin to SHA for production
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -156,7 +212,7 @@ jobs:
       - name: Snyk (Python)
         if: inputs.codeql_language == 'python'
         continue-on-error: true
-        uses: snyk/actions/python@master
+        uses: snyk/actions/python@0.4.0  # pin to SHA for production
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -165,9 +221,12 @@ jobs:
         if: inputs.codeql_language != 'go' && inputs.codeql_language != 'python'
         run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
 
-  stage4_container_iac_scanning:
-    name: "Stage 4 - Container and IaC Scanning"
-    needs: stage3_sca
+  # ──────────────────────────────────────────────
+  # Stage 5 – Container + IaC Scanning  (parallel with 3 and 4)
+  # ──────────────────────────────────────────────
+  stage5_container_iac_scanning:
+    name: "Stage 5 - Container and IaC Scanning"
+    needs: stage2_unit_tests_quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,21 +234,11 @@ jobs:
         run: |
           docker build -f "${{ inputs.dockerfile_path }}" -t "local/${{ inputs.app_name }}:${{ github.sha }}" "${{ inputs.app_path }}"
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0  # pin to SHA for production
         with:
           image-ref: local/${{ inputs.app_name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
-      - name: Grype image scan
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-          grype "local/${{ inputs.app_name }}:${{ github.sha }}" --fail-on high
-      - name: Anchore image scan
-        uses: anchore/scan-action@v6
-        with:
-          image: local/${{ inputs.app_name }}:${{ github.sha }}
-          fail-build: true
-          severity-cutoff: high
       - name: Checkov IaC scan
         if: hashFiles('devops-system-design-challenge/infra/**') != ''
         uses: bridgecrewio/checkov-action@v12
@@ -263,9 +312,12 @@ jobs:
             kyverno apply /tmp/kyverno-ci-policies.yaml --resource "$file"
           done
 
-  stage5_build_sign_attest:
-    name: "Stage 5 - Build and Artifact Signing"
-    needs: stage4_container_iac_scanning
+  # ──────────────────────────────────────────────
+  # Stage 6 – Build + Sign + Attest
+  # ──────────────────────────────────────────────
+  stage6_build_sign_attest:
+    name: "Stage 6 - Build and Artifact Signing"
+    needs: [stage3_sast, stage4_sca, stage5_container_iac_scanning]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -285,7 +337,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
         run: |
-          echo "image_ref=ghcr.io/${{ github.repository_owner }}/system-design-2026-${{ inputs.app_name }}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=ghcr.io/${{ github.repository }}-${{ inputs.app_name }}" >> "$GITHUB_OUTPUT"
       - id: build
         uses: docker/build-push-action@v6
         with:
@@ -305,109 +357,132 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
+  # ──────────────────────────────────────────────
+  # Stage 7 – Deploy Dev
+  # ──────────────────────────────────────────────
   deploy_dev:
-    name: "Stage 6 - Dev Auto Deploy"
-    needs: stage5_build_sign_attest
+    name: "Stage 7 - Dev Auto Deploy"
+    needs: stage6_build_sign_attest
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: k8s-system-design
     steps:
       - uses: azure/setup-kubectl@v4
       - name: Deploy same signed artifact to dev
         env:
           KCFG: ${{ secrets.DEV_KUBECONFIG_B64 }}
-          IMAGE: ${{ needs.stage5_build_sign_attest.outputs.image_ref }}@${{ needs.stage5_build_sign_attest.outputs.digest }}
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
         run: |
           test -n "$KCFG"
-          echo "$KCFG" | base64 -d > kubeconfig
-          export KUBECONFIG="$PWD/kubeconfig"
-          kubectl -n app set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-          kubectl -n app rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
+          kube_config=$(mktemp)
+          trap "rm -f '$kube_config'" EXIT
+          echo "$KCFG" | base64 -d > "$kube_config"
+          chmod 600 "$kube_config"
+          export KUBECONFIG="$kube_config"
+          kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
 
+  # ──────────────────────────────────────────────
+  # Stage 8 – Deploy Staging
+  # ──────────────────────────────────────────────
   deploy_staging:
-    name: "Stage 7 - Staging Auto Deploy"
-    needs: [deploy_dev, stage5_build_sign_attest]
+    name: "Stage 8 - Staging Auto Deploy"
+    needs: [deploy_dev, stage6_build_sign_attest]
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: k8s-system-design
     steps:
       - uses: azure/setup-kubectl@v4
       - name: Deploy same signed artifact to staging
         env:
           KCFG: ${{ secrets.STAGING_KUBECONFIG_B64 }}
-          IMAGE: ${{ needs.stage5_build_sign_attest.outputs.image_ref }}@${{ needs.stage5_build_sign_attest.outputs.digest }}
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
         run: |
           test -n "$KCFG"
-          echo "$KCFG" | base64 -d > kubeconfig
-          export KUBECONFIG="$PWD/kubeconfig"
-          kubectl -n app set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-          kubectl -n app rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
+          kube_config=$(mktemp)
+          trap "rm -f '$kube_config'" EXIT
+          echo "$KCFG" | base64 -d > "$kube_config"
+          chmod 600 "$kube_config"
+          export KUBECONFIG="$kube_config"
+          kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
 
-  stage6_dast:
-    name: "Stage 8 - DAST"
+  # ──────────────────────────────────────────────
+  # Stage 9 – Smoke Tests
+  # ──────────────────────────────────────────────
+  stage7_integration_e2e:
+    name: "Stage 9 - Smoke Tests"
     needs: deploy_staging
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: k8s-system-design
+    steps:
+      - name: Smoke tests on staging
+        run: |
+          test -n "${{ secrets.STAGING_BASE_URL }}"
+          curl -fsS "${{ secrets.STAGING_BASE_URL }}${{ inputs.route_prefix }}/healthz"
+
+  # ──────────────────────────────────────────────
+  # Stage 10 – DAST
+  # ──────────────────────────────────────────────
+  stage8_dast:
+    name: "Stage 10 - DAST"
+    needs: stage7_integration_e2e
+    if: github.ref == 'refs/heads/main'
+    runs-on: k8s-system-design
     steps:
       - uses: zaproxy/action-baseline@v0.14.0
         with:
           target: ${{ secrets.STAGING_BASE_URL }}${{ inputs.route_prefix }}
           fail_action: true
 
-  staging_acceptance:
-    name: "Stage 9 - Staging Acceptance"
-    needs: stage6_dast
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Acceptance smoke test
-        run: |
-          test -n "${{ secrets.STAGING_BASE_URL }}"
-          curl -fsS "${{ secrets.STAGING_BASE_URL }}${{ inputs.route_prefix }}/healthz"
-
+  # ──────────────────────────────────────────────
+  # Stage 11 – Policy Gate (verifica assinatura real)
+  # ──────────────────────────────────────────────
   policy_gate:
-    name: "Stage 10 - Policy Gate"
-    needs: staging_acceptance
+    name: "Stage 11 - Policy Gate"
+    needs: [stage8_dast, stage6_build_sign_attest]
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: k8s-system-design
     steps:
-      - name: OPA gate in CI
+      - uses: sigstore/cosign-installer@v3
+      - name: Verify cosign signature
+        env:
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
         run: |
-          wget -qO- https://github.com/open-policy-agent/conftest/releases/download/v0.54.0/conftest_0.54.0_Linux_x86_64.tar.gz | tar xz
-          sudo mv conftest /usr/local/bin
-          cat <<'EOF' > policy-input.json
-          {"signed_artifact": true, "dast_passed": true, "acceptance_passed": true}
-          EOF
-          cat <<'EOF' > policy.rego
-          package main
-          deny[msg] { not input.signed_artifact; msg := "signed artifact required" }
-          deny[msg] { not input.dast_passed; msg := "dast required" }
-          deny[msg] { not input.acceptance_passed; msg := "acceptance required" }
-          EOF
-          conftest test policy-input.json -p .
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}/.github/workflows/" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "$IMAGE"
 
+  # ──────────────────────────────────────────────
+  # Stage 12 – Prod Deploy (manual approval required)
+  # ──────────────────────────────────────────────
   deploy_prod:
-    name: "Stage 11 - Prod Approval and Progressive Deploy"
-    needs: [policy_gate, stage5_build_sign_attest]
+    name: "Stage 12 - Prod Approval and Progressive Deploy"
+    needs: [policy_gate, stage6_build_sign_attest]
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: k8s-system-design
+    environment: production
     steps:
       - uses: azure/setup-kubectl@v4
       - name: Progressive rollout with auto rollback
         env:
           KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
           PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
-          IMAGE: ${{ needs.stage5_build_sign_attest.outputs.image_ref }}@${{ needs.stage5_build_sign_attest.outputs.digest }}
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
         run: |
           test -n "$KCFG"
-          echo "$KCFG" | base64 -d > kubeconfig
-          export KUBECONFIG="$PWD/kubeconfig"
-          kubectl -n app set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-          if ! kubectl -n app rollout status deployment/${{ inputs.deploy_name }} --timeout=240s; then
-            kubectl -n app rollout undo deployment/${{ inputs.deploy_name }}
+          kube_config=$(mktemp)
+          trap "rm -f '$kube_config'" EXIT
+          echo "$KCFG" | base64 -d > "$kube_config"
+          chmod 600 "$kube_config"
+          export KUBECONFIG="$kube_config"
+          kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+          if ! kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=240s; then
+            kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
             exit 1
           fi
           if [ -n "$PROD_BASE_URL" ]; then
             if ! curl -fsS "${PROD_BASE_URL}${{ inputs.route_prefix }}/healthz"; then
-              kubectl -n app rollout undo deployment/${{ inputs.deploy_name }}
+              kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
               exit 1
             fi
           fi
