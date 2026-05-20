@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pipeline Runner Strategy — Trade-offs & ArgoCD Integration</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #1a1a1a;
+      background: #fafafa;
+    }
+    h1 { font-size: 1.6rem; margin-bottom: 4px; }
+    h2 { font-size: 1.2rem; margin-top: 40px; }
+    p.subtitle { color: #555; margin-top: 0; margin-bottom: 32px; font-size: 0.95rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 40px;
+    }
+    thead tr { background: #1a1a2e; color: #fff; }
+    th { padding: 14px 18px; text-align: left; font-weight: 600; font-size: 0.88rem; letter-spacing: 0.03em; }
+    td { padding: 12px 18px; font-size: 0.88rem; vertical-align: top; border-bottom: 1px solid #eee; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #f5f7ff; }
+
+    code {
+      background: #f1f1f1;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.82rem;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+    }
+
+    .yes  { color: #16a34a; font-weight: 700; }
+    .no   { color: #dc2626; font-weight: 700; }
+    .warn { color: #d97706; font-weight: 700; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .tag-ubuntu  { background: #e0f2fe; color: #0369a1; }
+    .tag-k8s     { background: #f0fdf4; color: #15803d; }
+    .tag-both    { background: #fef9c3; color: #92400e; }
+    .tag-inside  { background: #ede9fe; color: #6d28d9; }
+    .tag-outside { background: #fee2e2; color: #b91c1c; }
+
+    .flow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 32px;
+    }
+    .step {
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border: 2px solid transparent;
+    }
+    .step-ubuntu { background: #e0f2fe; border-color: #0369a1; color: #0369a1; }
+    .step-k8s    { background: #f0fdf4; border-color: #15803d; color: #15803d; }
+    .arrow { align-self: center; color: #999; font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+
+<h1>Pipeline Runner Strategy</h1>
+<p class="subtitle">Why stages 1–6 run on <code>ubuntu-latest</code> (AMD64) and stages 7–12 run on <code>k8s-system-design</code> (ARM64/K3s) — and how ArgoCD + Argo Rollouts fits in.</p>
+
+<!-- ── PIPELINE FLOW ── -->
+<h2>Pipeline flow</h2>
+<div class="flow">
+  <div class="step step-ubuntu">1 · Secret Detection</div>
+  <div class="arrow">→</div>
+  <div class="step step-ubuntu">2 · Unit Tests + SonarCloud</div>
+  <div class="arrow">→</div>
+  <div class="step step-ubuntu">3 · SAST</div>
+  <div class="arrow">→</div>
+  <div class="step step-ubuntu">4 · SCA</div>
+  <div class="arrow">→</div>
+  <div class="step step-ubuntu">5 · Container + IaC Scan</div>
+  <div class="arrow">→</div>
+  <div class="step step-ubuntu">6 · Build + Sign + Attest</div>
+  <div class="arrow">→</div>
+  <div class="step step-k8s">7 · Deploy Dev</div>
+  <div class="arrow">→</div>
+  <div class="step step-k8s">8 · Deploy Staging</div>
+  <div class="arrow">→</div>
+  <div class="step step-k8s">9 · Smoke Tests</div>
+  <div class="arrow">→</div>
+  <div class="step step-k8s">10 · DAST</div>
+  <div class="arrow">→</div>
+  <div class="step step-k8s">11 · Policy Gate</div>
+  <div class="arrow">→</div>
+  <div class="step step-k8s">12 · Deploy Prod ✋</div>
+</div>
+
+<!-- ── TRADE-OFFS TABLE ── -->
+<h2>Runner trade-offs per stage group</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Dimension</th>
+      <th>Stages 1–6 · <code>ubuntu-latest</code></th>
+      <th>Stages 7–12 · <code>k8s-system-design</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Architecture</strong></td>
+      <td>AMD64 (GitHub-hosted cloud)</td>
+      <td>ARM64 (Raspberry Pi 4 / K3s)</td>
+    </tr>
+    <tr>
+      <td><strong>Why this runner</strong></td>
+      <td>Downloads AMD64-only binaries (<code>conftest_x86_64</code>, <code>kyverno_x86_64</code>). Would break on ARM64.</td>
+      <td>Must reach local network: <code>192.168.1.106:6443</code> and <code>traefik.mykubernetes.com</code>. Cloud runners can't reach these.</td>
+    </tr>
+    <tr>
+      <td><strong>Cluster access</strong></td>
+      <td><span class="no">✗ Not needed</span> — only checkout, scan, build, push to GHCR.</td>
+      <td><span class="yes">✓ Required</span> — <code>kubectl set image</code>, rollout status, healthz probe, cosign verify.</td>
+    </tr>
+    <tr>
+      <td><strong>ARM64 compatible tools</strong></td>
+      <td>Irrelevant — AMD64 runner.</td>
+      <td><span class="yes">✓</span> All tools used here support ARM64: <code>kubectl</code>, <code>cosign</code>, <code>curl</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>Cost</strong></td>
+      <td>GitHub-hosted minutes (free tier: 2000 min/month for public repos).</td>
+      <td>Free — runs on your own hardware.</td>
+    </tr>
+    <tr>
+      <td><strong>Cold start</strong></td>
+      <td>Fast — GitHub spins up VM instantly.</td>
+      <td>Near-zero — ARC scales runner pod from 0 on demand (~10s).</td>
+    </tr>
+    <tr>
+      <td><strong>Blast radius if runner dies</strong></td>
+      <td>Low — GitHub handles infra, auto-retried.</td>
+      <td>Medium — depends on Pi cluster health. If cluster is down, stages 7–12 block.</td>
+    </tr>
+    <tr>
+      <td><strong>Parallel capacity</strong></td>
+      <td>Unlimited — GitHub scales runners.</td>
+      <td>Max 3 runners (configured in ARC AutoscalingRunnerSet).</td>
+    </tr>
+    <tr>
+      <td><strong>Binary download risk</strong></td>
+      <td>AMD64 binaries hardcoded — no risk on this runner.</td>
+      <td>Only ARM64-native tools used — no binary download risk.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── WHY NOT ALL ON ONE RUNNER ── -->
+<h2>Why not run everything on one runner?</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Option</th>
+      <th>Problem</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>All on <code>ubuntu-latest</code></td>
+      <td>GitHub-hosted runners can't reach <code>192.168.1.x</code> or <code>traefik.mykubernetes.com</code>. Stages 7–12 timeout on every kubectl/curl call.</td>
+    </tr>
+    <tr>
+      <td>All on <code>k8s-system-design</code> (ARM64)</td>
+      <td>Conftest and Kyverno CLI binaries are downloaded as <code>x86_64</code>. Running them on ARM64 causes <code>exec format error</code>. Stages 4–5 break.</td>
+    </tr>
+    <tr>
+      <td><strong>Split: 1–6 cloud / 7–12 local</strong></td>
+      <td><span class="yes">✓ Best of both</span> — AMD64 for compute/scan stages, ARM64/local for deploy stages that need cluster access.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── ARGOCD + ROLLOUTS ── -->
+<h2>ArgoCD + Argo Rollouts — inside or outside the pipeline?</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Aspect</th>
+      <th>Current approach (<code>kubectl set image</code>)</th>
+      <th>With ArgoCD + Argo Rollouts</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Deploy mechanism</strong></td>
+      <td>Pipeline runs <code>kubectl set image</code> imperatively.</td>
+      <td>Pipeline updates image tag in Git (Kustomize/Helm values). ArgoCD detects the diff and syncs declaratively.</td>
+    </tr>
+    <tr>
+      <td><strong>Who lives inside the pipeline?</strong></td>
+      <td>Stages 7, 8, 12 — full deploy logic in YAML.</td>
+      <td><span class="tag tag-inside">INSIDE</span> Stage 6 pushes image + updates GitOps repo with new tag. Optionally: <code>argocd app sync</code> + wait for health.</td>
+    </tr>
+    <tr>
+      <td><strong>Who lives outside the pipeline?</strong></td>
+      <td>Nothing — pipeline owns everything.</td>
+      <td><span class="tag tag-outside">OUTSIDE</span> Deployment strategy (canary weights, analysis runs, rollback) is declared in the <code>Rollout</code> resource in Git — ArgoCD + Argo Rollouts executes it autonomously.</td>
+    </tr>
+    <tr>
+      <td><strong>Progressive delivery</strong></td>
+      <td>Basic rollout with auto-rollback on <code>rollout status</code> timeout.</td>
+      <td>Canary (10% → 50% → 100%), blue-green, with <code>AnalysisRun</code> checking Prometheus metrics before promoting.</td>
+    </tr>
+    <tr>
+      <td><strong>Rollback</strong></td>
+      <td><code>kubectl rollout undo</code> triggered by pipeline on healthz failure.</td>
+      <td>Argo Rollouts automatically aborts and rolls back if AnalysisRun fails (error rate, latency SLO breach).</td>
+    </tr>
+    <tr>
+      <td><strong>Audit trail</strong></td>
+      <td>GitHub Actions logs.</td>
+      <td>Git history is the audit trail — every deploy is a commit with author, timestamp, and diff.</td>
+    </tr>
+    <tr>
+      <td><strong>Manual approval (prod)</strong></td>
+      <td>GitHub Environment with required reviewers (<code>environment: production</code>).</td>
+      <td>ArgoCD sync policy set to manual for prod app, or Argo Rollouts <code>pause</code> step before full promotion.</td>
+    </tr>
+    <tr>
+      <td><strong>Complexity</strong></td>
+      <td>Low — pipeline owns everything, easy to debug.</td>
+      <td>Higher — two systems (pipeline + ArgoCD) must be understood together. But scales better.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── ARGOCD INTEGRATION FLOW ── -->
+<h2>How the pipeline would change with ArgoCD + Argo Rollouts</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Stage</th>
+      <th>Current</th>
+      <th>With ArgoCD</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1–6</td>
+      <td>Unchanged — scan, build, sign, push to GHCR.</td>
+      <td>Unchanged.</td>
+    </tr>
+    <tr>
+      <td>6 (end)</td>
+      <td>Push image to GHCR.</td>
+      <td>Push image to GHCR <strong>+</strong> open PR / commit to GitOps repo updating <code>image.tag</code> in Helm values or Kustomize overlay.</td>
+    </tr>
+    <tr>
+      <td>7 · Dev deploy</td>
+      <td><code>kubectl set image deployment/...</code></td>
+      <td><code>argocd app sync dev-app --wait</code> — ArgoCD applies the new tag from Git.</td>
+    </tr>
+    <tr>
+      <td>8 · Staging deploy</td>
+      <td><code>kubectl set image deployment/...</code></td>
+      <td><code>argocd app sync staging-app --wait</code> — Argo Rollouts executes canary strategy declared in the <code>Rollout</code> resource.</td>
+    </tr>
+    <tr>
+      <td>9–10 · Smoke + DAST</td>
+      <td>Unchanged — tests against staging URL.</td>
+      <td>Unchanged.</td>
+    </tr>
+    <tr>
+      <td>11 · Policy Gate</td>
+      <td>Cosign verify.</td>
+      <td>Cosign verify <strong>+</strong> optionally check ArgoCD app health status via API.</td>
+    </tr>
+    <tr>
+      <td>12 · Prod deploy</td>
+      <td><code>kubectl set image</code> + manual GitHub approval.</td>
+      <td>GitHub approval gate remains. After approval: <code>argocd app sync prod-app</code>. Argo Rollouts handles blue-green or canary with AnalysisRun (Prometheus metrics gate).</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:#888; font-size:0.82rem; margin-top: 32px;">
+  Generated during system-design-2026 DevSecOps pipeline study session · 2026-05-20
+</p>
+
+</body>
+</html>
