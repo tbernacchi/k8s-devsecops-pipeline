@@ -112,7 +112,7 @@ jobs:
         working-directory: ${{ inputs.app_path }}
         run: |
           if git ls-files . | grep -Eq '_test\.go$'; then
-            go test ./... -v
+            go test ./... -v -coverprofile=coverage.out -covermode=atomic
           else
             echo "No Go unit tests found. Skipping."
           fi
@@ -128,9 +128,11 @@ jobs:
           if [ -f "${{ inputs.dependency_file }}" ]; then
             pip install -r "${{ inputs.dependency_file }}"
           fi
-          pip install pytest
+          pip install pytest pytest-cov
           if git ls-files "${{ inputs.app_path }}" | grep -Eq '(^|/)(test_.*\.py|.*_test\.py)$'; then
-            pytest -q "${{ inputs.app_path }}"
+            pytest -q "${{ inputs.app_path }}" \
+              --cov="${{ inputs.app_path }}" \
+              --cov-report=xml:coverage.xml
           else
             echo "No Python unit tests found. Skipping."
           fi
@@ -145,6 +147,8 @@ jobs:
             -Dsonar.projectKey=${{ github.repository_owner }}_${{ inputs.app_name }}
             -Dsonar.organization=${{ github.repository_owner }}
             -Dsonar.sources=${{ inputs.app_path }}
+            -Dsonar.go.coverage.reportPaths=${{ inputs.app_path }}/coverage.out
+            -Dsonar.python.coverage.reportPaths=coverage.xml
       - name: SonarQube Quality Gate
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
