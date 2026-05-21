@@ -34,6 +34,44 @@ Stages 1–6 run on GitHub-hosted AMD64 runners. Stages 7–12 run on a self-hos
 - **Runners**: Actions Runner Controller (ARC) — `k8s-system-design` scale set
 - **Security**: Cosign keyless signing, SLSA provenance, OWASP ZAP DAST, SonarCloud
 
+### Pre-requirements
+
+**GitHub repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Description |
+|--------|-------------|
+| `SONAR_TOKEN` | SonarCloud token — My Account → Security → Generate Token |
+| `SONAR_HOST_URL` | `https://sonarcloud.io` |
+| `SNYK_TOKEN` | Snyk token — app.snyk.io → Account Settings → Auth Token |
+| `DEV_KUBECONFIG_B64` | Dev cluster kubeconfig: `cat ~/.kube/config \| base64 -w0` |
+| `STAGING_KUBECONFIG_B64` | Staging cluster kubeconfig: `cat ~/.kube/config \| base64 -w0` |
+| `STAGING_BASE_URL` | Staging app base URL (e.g. `https://traefik.mykubernetes.com`) |
+
+**GitHub environment secrets** (Settings → Environments → production):
+
+| Secret | Description |
+|--------|-------------|
+| `PROD_KUBECONFIG_B64` | Prod cluster kubeconfig: `cat ~/.kube/config \| base64 -w0` |
+| `PROD_BASE_URL` | Prod app base URL (e.g. `https://traefik.mykubernetes.com`) |
+
+**GitHub settings:**
+
+| Setting | Where | Value |
+|---------|-------|-------|
+| Workflow permissions | Settings → Actions → General | Read and write |
+| Production environment | Settings → Environments → production | Required reviewers: your GitHub user |
+| Branch protection | Settings → Branches → main | See branch protection section |
+
+**Cluster (K3s):**
+
+- ARC runner `k8s-system-design` installed and registered to this repo ([gh-runner/README.md](gh-runner/README.md))
+- containerd configured to pull from `ghcr.io` — `/etc/rancher/k3s/registries.yaml` on each node
+
+**SonarCloud:**
+
+- Organization `tbernacchi` exists at `sonarcloud.io/organizations/tbernacchi`
+- Projects `tbernacchi_frontend` and `tbernacchi_backend` created (or auto-provision enabled)
+
 ### Triggering the pipeline
 
 **Manual trigger (both apps):**
@@ -62,8 +100,10 @@ git commit -m "..." && git push   # when touching .github/workflows/reusable-app
 
 **Monitor run:**
 ```bash
-gh run list --workflow=frontend.yml
-gh run watch
+gh run list --workflow=frontend.yml        # list runs + IDs
+gh run watch                               # live output, waits for completion
+gh run view <run-id> --log                 # full log
+gh run view <run-id> --log-failed          # failed steps only
 ```
 
 **Stage 12 — prod deploy requires manual approval.**
