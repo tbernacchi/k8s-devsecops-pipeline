@@ -49,9 +49,6 @@ on:
       PROD_BASE_URL:
         required: false
 
-permissions:
-  contents: read
-
 jobs:
   # ──────────────────────────────────────────────
   # Stage 1 – Secret Detection

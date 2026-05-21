@@ -5,3 +5,6 @@
 **/.terraform/
 *.tfstate
 *.tfstate.*
+
+# pycache 
+./devsecops/apps/frontend/src/frontend/__pycache__/* 
