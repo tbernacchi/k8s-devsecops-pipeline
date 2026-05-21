@@ -64,6 +64,8 @@ on:
         required: false
       SLACK_WEBHOOK_K8S_CI_FAILURES:
         required: false
+      SLACK_WEBHOOK_K8S_BUILD_CI_FAILURES:
+        required: false
 
 jobs:
   # ──────────────────────────────────────────────
@@ -319,10 +321,10 @@ jobs:
           subject-name: ${{ steps.meta.outputs.image_ref }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
-      - name: "Slack | k8s-ci-failures"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_CI_FAILURES != ''
+      - name: "Slack | k8s-build-ci-failures"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_BUILD_CI_FAILURES != ''
         run: |
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_CI_FAILURES }}" \
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_BUILD_CI_FAILURES }}" \
             -H 'Content-Type: application/json' \
             -d "{\"text\":\":x: *Build / Sign / Attest failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
