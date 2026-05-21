@@ -15,6 +15,13 @@ on:
       - ".github/workflows/backend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
 
+permissions:
+  contents: read
+  security-events: write
+  packages: write
+  id-token: write
+  attestations: write
+
 jobs:
   backend:
     uses: ./.github/workflows/reusable-app-pipeline.yml
