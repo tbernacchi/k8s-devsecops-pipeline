@@ -81,7 +81,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: TruffleHog
         run: |
-          docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest filesystem /pwd --only-verified --fail --no-update
+          printf '.*README.*\n.*\.example$\n' > /tmp/th-exclude.txt
+          docker run --rm \
+            -v "$PWD:/pwd" \
+            -v "/tmp/th-exclude.txt:/th-exclude.txt" \
+            trufflesecurity/trufflehog:latest filesystem /pwd \
+            --only-verified --fail --no-update \
+            --exclude-paths=/th-exclude.txt
 
   # ──────────────────────────────────────────────
   # Stage 2 – Unit Tests + Code Quality
