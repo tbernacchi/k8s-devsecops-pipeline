@@ -66,24 +66,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: detect-secrets as pre-commit hook
+      - name: detect-secrets
         run: |
-          pip install pre-commit detect-secrets
-          cat <<'EOF' > .pre-commit-ci.yaml
-          repos:
-            - repo: https://github.com/Yelp/detect-secrets
-              rev: v1.5.0
-              hooks:
-                - id: detect-secrets
-                  exclude: |
-                    (?x)^(
-                      README\.md|
-                      .*/README\.md|
-                      .*\.example|
-                      .*\.tfvars\.example
-                    )$
-          EOF
-          pre-commit run --config .pre-commit-ci.yaml --all-files
+          pip install detect-secrets
+          detect-secrets scan \
+            --exclude-files 'README\.md' \
+            --exclude-files '.*README\.md' \
+            --exclude-files '.*\.example$' \
+            > .secrets.baseline
+          python3 -c "
+          import json, sys
+          with open('.secrets.baseline') as f:
+              data = json.load(f)
+          results = data.get('results', {})
+          if results:
+              for fname, secrets in results.items():
+                  for secret in secrets:
+                      print(f'SECRET FOUND: {fname} - {secret[\"type\"]}')
+              sys.exit(1)
+          print('No secrets detected.')
+          "
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
