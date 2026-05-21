@@ -197,22 +197,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@0.29.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ inputs.app_path }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            aquasec/trivy:latest fs /repo/${{ inputs.app_path }} \
+            --scanners vuln --severity HIGH,CRITICAL --exit-code 1
       - name: OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@v9.2.0
-        with:
-          project: ${{ inputs.app_name }}
-          path: ${{ inputs.app_path }}
-          format: HTML
-          out: reports
-          args: >
-            --enableRetired
+        run: |
+          mkdir -p reports
+          docker run --rm \
+            -v "$PWD/${{ inputs.app_path }}:/src" \
+            -v "$PWD/reports:/report" \
+            owasp/dependency-check:latest \
+            --scan /src \
+            --format HTML \
+            --out /report \
+            --project "${{ inputs.app_name }}" \
+            --enableRetired \
             --failOnCVSS 7
       - name: Snyk (Go)
         if: inputs.codeql_language == 'go'
@@ -247,11 +248,12 @@ jobs:
         run: |
           docker build -f "${{ inputs.dockerfile_path }}" -t "local/${{ inputs.app_name }}:${{ github.sha }}" "${{ inputs.app_path }}"
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.29.0
-        with:
-          image-ref: local/${{ inputs.app_name }}:${{ github.sha }}
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --severity HIGH,CRITICAL --exit-code 1 \
+            "local/${{ inputs.app_name }}:${{ github.sha }}"
 
   # ──────────────────────────────────────────────
   # Stage 6 – Build + Sign + Attest
