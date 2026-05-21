@@ -74,6 +74,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: detect-secrets
+        id: detect_secrets
+        continue-on-error: true
         run: |
           pip install detect-secrets
           detect-secrets scan \
@@ -81,12 +83,17 @@ jobs:
             --exclude-files '.*README\.md' \
             --exclude-files '.*\.example$' \
             > .secrets.baseline
-          python3 -c "import json,sys; r=json.load(open('.secrets.baseline')).get('results',{}); [print('SECRET FOUND:',f,s['type']) for f,ss in r.items() for s in ss]; sys.exit(bool(r))"
+          python3 -c "import json,sys; r=json.load(open('.secrets.baseline')).get('results',{}); [print('SECRET FOUND:',f,s['type']) for f,ss in r.items() for s in ss]; sys.exit(bool(r))" \
+            2>&1 | tee /tmp/detect-secrets.log
       - name: Gitleaks
+        id: gitleaks
+        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: TruffleHog
+        id: trufflehog
+        continue-on-error: true
         run: |
           printf '.*README.*\n.*\.example$\n' > /tmp/th-exclude.txt
           docker run --rm \
@@ -94,13 +101,29 @@ jobs:
             -v "/tmp/th-exclude.txt:/th-exclude.txt" \
             trufflesecurity/trufflehog:latest filesystem /pwd \
             --only-verified --fail --no-update \
-            --exclude-paths=/th-exclude.txt
+            --exclude-paths=/th-exclude.txt \
+            2>&1 | tee /tmp/trufflehog.log
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.detect_secrets.outcome }}" = "failure" ] && FAILED="detect-secrets" \
+            && LOG=$(tail -25 /tmp/detect-secrets.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+          [ "${{ steps.gitleaks.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Gitleaks"
+          [ "${{ steps.trufflehog.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }TruffleHog" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/trufflehog.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          jq -n \
+            --arg text ":rotating_light: *[Stage 1 - Secret Detection] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":rotating_light: *[Stage 1 - Secret Detection] SECRET DETECTED* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\ndetect-secrets / Gitleaks / TruffleHog found a verified secret. Rotate credentials immediately.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if secret detected
+        if: steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure'
+        run: exit 1
 
   # ──────────────────────────────────────────────
   # Stage 2 – Unit Tests + Code Quality
@@ -121,11 +144,13 @@ jobs:
           cache: true
           cache-dependency-path: ${{ inputs.app_path }}/go.sum
       - name: Unit tests (Go)
+        id: go_tests
         if: inputs.codeql_language == 'go'
+        continue-on-error: true
         working-directory: ${{ inputs.app_path }}
         run: |
           if git ls-files . | grep -Eq '_test\.go$'; then
-            go test ./... -v -coverprofile=coverage.out -covermode=atomic
+            go test ./... -v -coverprofile=coverage.out -covermode=atomic 2>&1 | tee /tmp/go-tests.log
           else
             echo "No Go unit tests found. Skipping."
           fi
@@ -136,7 +161,9 @@ jobs:
           cache: 'pip'
           cache-dependency-path: ${{ inputs.dependency_file }}
       - name: Unit tests (Python)
+        id: python_tests
         if: inputs.codeql_language == 'python'
+        continue-on-error: true
         run: |
           if [ -f "${{ inputs.dependency_file }}" ]; then
             pip install -r "${{ inputs.dependency_file }}"
@@ -145,12 +172,15 @@ jobs:
           if git ls-files "${{ inputs.app_path }}" | grep -Eq '(^|/)(test_.*\.py|.*_test\.py)$'; then
             pytest -q "${{ inputs.app_path }}" \
               --cov="${{ inputs.app_path }}" \
-              --cov-report=xml:coverage.xml
+              --cov-report=xml:coverage.xml \
+              2>&1 | tee /tmp/pytest.log
           else
             echo "No Python unit tests found. Skipping."
           fi
       - name: SonarQube Scan
+        id: sonar_scan
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
@@ -163,7 +193,9 @@ jobs:
             -Dsonar.go.coverage.reportPaths=${{ inputs.app_path }}/coverage.out
             -Dsonar.python.coverage.reportPaths=coverage.xml
       - name: SonarQube Quality Gate
+        id: sonar_qg
         if: env.SONAR_TOKEN != '' && env.SONAR_HOST_URL != ''
+        continue-on-error: true
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.0
         with:
           pollingTimeoutSec: "300"
@@ -173,14 +205,31 @@ jobs:
         if: env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == ''
         run: echo "Skipping SonarQube because SONAR_TOKEN/SONAR_HOST_URL are not configured."
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.go_tests.outcome == 'failure' || steps.python_tests.outcome == 'failure' || steps.sonar_scan.outcome == 'failure' || steps.sonar_qg.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.go_tests.outcome }}" = "failure" ] && FAILED="Go tests" \
+            && LOG=$(tail -25 /tmp/go-tests.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+          [ "${{ steps.python_tests.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Python tests" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/pytest.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          [ "${{ steps.sonar_scan.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }SonarQube Scan"
+          [ "${{ steps.sonar_qg.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }SonarQube Quality Gate"
+          jq -n \
+            --arg text ":x: *[Stage 2 - Unit Tests / Quality] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":x: *[Stage 2 - Unit Tests / Quality Gate] failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if tests or quality gate failed
+        if: steps.go_tests.outcome == 'failure' || steps.python_tests.outcome == 'failure' || steps.sonar_scan.outcome == 'failure' || steps.sonar_qg.outcome == 'failure'
+        run: exit 1
 
   # ──────────────────────────────────────────────
-  # Stage 3 – SAST  (parallel with 4 and 5)
+  # Stage 3 – SAST  (parallel with 4)
   # ──────────────────────────────────────────────
   stage3_sast:
     name: "Stage 3 - SAST"
@@ -192,9 +241,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Semgrep SAST
+        id: semgrep
+        continue-on-error: true
         run: |
           pip install semgrep --quiet
-          semgrep scan --config=auto "${{ inputs.app_path }}" --sarif > semgrep.sarif
+          semgrep scan --config=auto "${{ inputs.app_path }}" --sarif > semgrep.sarif \
+            2>/tmp/semgrep.log
       - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
@@ -202,21 +254,42 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
-      - uses: github/codeql-action/init@v4
+      - name: CodeQL init
+        id: codeql_init
+        continue-on-error: true
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ inputs.codeql_language }}
-      - if: inputs.codeql_language == 'go'
+      - name: CodeQL autobuild
+        id: codeql_autobuild
+        if: inputs.codeql_language == 'go'
+        continue-on-error: true
         uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - name: CodeQL analyze
+        id: codeql_analyze
+        continue-on-error: true
+        uses: github/codeql-action/analyze@v4
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.semgrep.outcome == 'failure' || steps.codeql_analyze.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.semgrep.outcome }}" = "failure" ] && FAILED="Semgrep" \
+            && LOG=$(tail -25 /tmp/semgrep.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+          [ "${{ steps.codeql_analyze.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }CodeQL"
+          jq -n \
+            --arg text ":warning: *[Stage 3 - SAST] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":warning: *[Stage 3 - SAST] finding* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\nSemgrep or CodeQL detected a vulnerability in source code.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if SAST check failed
+        if: steps.semgrep.outcome == 'failure' || steps.codeql_analyze.outcome == 'failure'
+        run: exit 1
 
   # ──────────────────────────────────────────────
-  # Stage 4 – SCA  (parallel with 3 and 5)
+  # Stage 4 – SCA  (parallel with 3)
   # ──────────────────────────────────────────────
   stage4_sca:
     name: "Stage 4 - SCA"
@@ -225,12 +298,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy dependency scan
+        id: trivy
+        continue-on-error: true
         run: |
           docker run --rm \
             -v "$PWD:/repo" \
             aquasec/trivy:latest fs /repo/${{ inputs.app_path }} \
-            --scanners vuln --severity HIGH,CRITICAL --exit-code 1
+            --scanners vuln --severity HIGH,CRITICAL --exit-code 1 \
+            2>&1 | tee /tmp/trivy.log
       - name: OWASP Dependency Check
+        id: owasp
+        continue-on-error: true
         run: |
           mkdir -p reports
           docker run --rm \
@@ -242,8 +320,10 @@ jobs:
             --out /report \
             --project "${{ inputs.app_name }}" \
             --enableRetired \
-            --failOnCVSS 7
+            --failOnCVSS 7 \
+            2>&1 | tee /tmp/owasp.log
       - name: Snyk (Go)
+        id: snyk_go
         if: inputs.codeql_language == 'go'
         continue-on-error: true
         uses: snyk/actions/golang@master
@@ -252,6 +332,7 @@ jobs:
         with:
           args: --severity-threshold=high --file=${{ inputs.dependency_file }}
       - name: Snyk (Python)
+        id: snyk_python
         if: inputs.codeql_language == 'python'
         continue-on-error: true
         uses: snyk/actions/python@master
@@ -263,11 +344,28 @@ jobs:
         if: inputs.codeql_language != 'go' && inputs.codeql_language != 'python'
         run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.trivy.outcome == 'failure' || steps.owasp.outcome == 'failure' || steps.snyk_go.outcome == 'failure' || steps.snyk_python.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.trivy.outcome }}" = "failure" ] && FAILED="Trivy" \
+            && LOG=$(tail -25 /tmp/trivy.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+          [ "${{ steps.owasp.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }OWASP DC" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/owasp.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          [ "${{ steps.snyk_go.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Snyk"
+          [ "${{ steps.snyk_python.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Snyk"
+          jq -n \
+            --arg text ":biohazard_sign: *[Stage 4 - SCA] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":biohazard_sign: *[Stage 4 - SCA] CVE HIGH/CRITICAL found* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\nTrivy / OWASP DC / Snyk detected a vulnerable dependency.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if SCA check failed
+        if: steps.trivy.outcome == 'failure' || steps.owasp.outcome == 'failure' || steps.snyk_go.outcome == 'failure' || steps.snyk_python.outcome == 'failure'
+        run: exit 1
 
   # ──────────────────────────────────────────────
   # Stage 5 – Build + Sign + Attest
@@ -296,6 +394,7 @@ jobs:
         run: |
           echo "image_ref=ghcr.io/${{ github.repository }}-${{ inputs.app_name }}" >> "$GITHUB_OUTPUT"
       - id: build
+        continue-on-error: true
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.app_path }}
@@ -306,19 +405,39 @@ jobs:
           sbom: true
       - uses: sigstore/cosign-installer@v3
       - name: Cosign sign
+        id: cosign
+        continue-on-error: true
         run: |
-          cosign sign --yes "${{ steps.meta.outputs.image_ref }}@${{ steps.build.outputs.digest }}"
-      - uses: actions/attest-build-provenance@v1
+          cosign sign --yes "${{ steps.meta.outputs.image_ref }}@${{ steps.build.outputs.digest }}" \
+            2>&1 | tee /tmp/cosign.log
+      - name: Attest build provenance
+        id: attest
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v1
         with:
           subject-name: ${{ steps.meta.outputs.image_ref }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.build.outcome == 'failure' || steps.cosign.outcome == 'failure' || steps.attest.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.build.outcome }}" = "failure" ] && FAILED="Docker build"
+          [ "${{ steps.cosign.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Cosign sign" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/cosign.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          [ "${{ steps.attest.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Attest"
+          jq -n \
+            --arg text ":x: *[Stage 5 - Build / Sign / Attest] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":x: *[Stage 5 - Build / Sign / Attest] failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if build or signing failed
+        if: steps.build.outcome == 'failure' || steps.cosign.outcome == 'failure' || steps.attest.outcome == 'failure'
+        run: exit 1
 
   # ──────────────────────────────────────────────
   # Stage 6 – Deploy Dev
@@ -464,4 +583,3 @@ jobs:
               exit 1
             fi
           fi
-

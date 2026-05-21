@@ -32,6 +32,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: detect-secrets
+        id: detect_secrets
+        continue-on-error: true
         run: |
           pip install detect-secrets
           detect-secrets scan \
@@ -39,12 +41,17 @@ jobs:
             --exclude-files '.*README\.md' \
             --exclude-files '.*\.example$' \
             > .secrets.baseline
-          python3 -c "import json,sys; r=json.load(open('.secrets.baseline')).get('results',{}); [print('SECRET FOUND:',f,s['type']) for f,ss in r.items() for s in ss]; sys.exit(bool(r))"
+          python3 -c "import json,sys; r=json.load(open('.secrets.baseline')).get('results',{}); [print('SECRET FOUND:',f,s['type']) for f,ss in r.items() for s in ss]; sys.exit(bool(r))" \
+            2>&1 | tee /tmp/detect-secrets.log
       - name: Gitleaks
+        id: gitleaks
+        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: TruffleHog
+        id: trufflehog
+        continue-on-error: true
         run: |
           printf '.*README.*\n.*\.example$\n' > /tmp/th-exclude.txt
           docker run --rm \
@@ -52,13 +59,29 @@ jobs:
             -v "/tmp/th-exclude.txt:/th-exclude.txt" \
             trufflesecurity/trufflehog:latest filesystem /pwd \
             --only-verified --fail --no-update \
-            --exclude-paths=/th-exclude.txt
+            --exclude-paths=/th-exclude.txt \
+            2>&1 | tee /tmp/trufflehog.log
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.detect_secrets.outcome }}" = "failure" ] && FAILED="detect-secrets" \
+            && LOG=$(tail -25 /tmp/detect-secrets.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
+          [ "${{ steps.gitleaks.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Gitleaks"
+          [ "${{ steps.trufflehog.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }TruffleHog" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/trufflehog.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          jq -n \
+            --arg text ":rotating_light: *[Infra - Stage 1 - Secret Detection] ${FAILED} failed* — branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":rotating_light: *[Infra - Stage 1 - Secret Detection] SECRET DETECTED* — branch \`${{ github.ref_name }}\`\ndetect-secrets / Gitleaks / TruffleHog found a verified secret. Rotate credentials immediately.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if secret detected
+        if: steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure'
+        run: exit 1
 
   # ──────────────────────────────────────────────
   # Stage 2 – IaC Scanning
@@ -71,21 +94,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Checkov (Terraform + k8s + Helm)
+        id: checkov
         if: hashFiles('devsecops/infra/**') != ''
+        continue-on-error: true
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: devsecops/infra
           soft_fail: true
 
       - name: tfsec (Terraform)
+        id: tfsec
         if: hashFiles('devsecops/infra/**/*.tf') != ''
+        continue-on-error: true
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           working_directory: devsecops/infra
-        continue-on-error: true
 
       - name: Conftest OPA policies (k8s manifests)
+        id: conftest
         if: hashFiles('devsecops/infra/**') != ''
+        continue-on-error: true
         run: |
           wget -qO- https://github.com/open-policy-agent/conftest/releases/download/v0.54.0/conftest_0.54.0_Linux_x86_64.tar.gz | tar xz
           sudo mv conftest /usr/local/bin
@@ -97,10 +125,12 @@ jobs:
             msg := "runAsNonRoot must be true"
           }
           EOF
-          conftest test devsecops/infra -p /tmp || true
+          conftest test devsecops/infra -p /tmp 2>&1 | tee /tmp/conftest.log
 
       - name: Kyverno policy-as-code validation
+        id: kyverno
         if: hashFiles('devsecops/infra/helm/**/*.y*ml', 'devsecops/k8s/**/*.y*ml') != ''
+        continue-on-error: true
         run: |
           KYVERNO_VERSION="v1.12.5"
           curl -sSfL "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION#v}_linux_x86_64.tar.gz" | tar xz
@@ -146,10 +176,28 @@ jobs:
           manifest_files=(devsecops/infra/helm/**/*.yaml devsecops/infra/helm/**/*.yml devsecops/k8s/**/*.yaml devsecops/k8s/**/*.yml)
           for file in "${manifest_files[@]}"; do
             kyverno apply /tmp/kyverno-ci-policies.yaml --resource "$file"
-          done
+          done 2>&1 | tee /tmp/kyverno.log
+
       - name: "Slack | k8s-devsecops-pipe"
-        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: (steps.checkov.outcome == 'failure' || steps.tfsec.outcome == 'failure' || steps.conftest.outcome == 'failure' || steps.kyverno.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
         run: |
+          FAILED=""
+          LOG=""
+          [ "${{ steps.checkov.outcome }}" = "failure" ] && FAILED="Checkov"
+          [ "${{ steps.tfsec.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }tfsec"
+          [ "${{ steps.conftest.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Conftest OPA" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/conftest.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          [ "${{ steps.kyverno.outcome }}" = "failure" ] \
+            && FAILED="${FAILED:+$FAILED, }Kyverno" \
+            && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/kyverno.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
+          jq -n \
+            --arg text ":warning: *[Infra - Stage 2 - IaC Scanning] ${FAILED} failed* — branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
+            '{text: $text}' | \
           curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
             -H 'Content-Type: application/json' \
-            -d "{\"text\":\":warning: *[Infra - Stage 2 - IaC Scanning] misconfiguration found* — branch \`${{ github.ref_name }}\`\nCheckov / tfsec / Conftest / Kyverno detected an issue in Terraform, Helm or K8s manifests.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
+            -d @-
+      - name: Fail if IaC check failed
+        if: steps.checkov.outcome == 'failure' || steps.tfsec.outcome == 'failure' || steps.conftest.outcome == 'failure' || steps.kyverno.outcome == 'failure'
+        run: exit 1
