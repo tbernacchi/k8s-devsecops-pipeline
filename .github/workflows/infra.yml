@@ -53,6 +53,12 @@ jobs:
             trufflesecurity/trufflehog:latest filesystem /pwd \
             --only-verified --fail --no-update \
             --exclude-paths=/th-exclude.txt
+      - name: "Slack | k8s-devsecops-pipe"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":rotating_light: *[Infra - Stage 1 - Secret Detection] SECRET DETECTED* — branch \`${{ github.ref_name }}\`\ndetect-secrets / Gitleaks / TruffleHog found a verified secret. Rotate credentials immediately.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
   # ──────────────────────────────────────────────
   # Stage 2 – IaC Scanning
@@ -141,3 +147,9 @@ jobs:
           for file in "${manifest_files[@]}"; do
             kyverno apply /tmp/kyverno-ci-policies.yaml --resource "$file"
           done
+      - name: "Slack | k8s-devsecops-pipe"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":warning: *[Infra - Stage 2 - IaC Scanning] misconfiguration found* — branch \`${{ github.ref_name }}\`\nCheckov / tfsec / Conftest / Kyverno detected an issue in Terraform, Helm or K8s manifests.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
