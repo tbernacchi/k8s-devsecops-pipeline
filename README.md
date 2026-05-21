@@ -274,22 +274,27 @@ GitHub sends an email when the pipeline reaches prod deploy.
 
 #### Stage 1 — detect-secrets false positives
 
-`detect-secrets` uses keyword heuristics — any line containing `secret`, `password`, `key` next to a value triggers a finding, regardless of context. These are **not real secrets**:
+`detect-secrets` uses keyword heuristics — any line containing `secret`, `password`, `key` next to a value triggers a finding, regardless of context.
 
-| File | Trigger | Reason |
-|------|---------|--------|
-| `frontend.yml`, `backend.yml` | `secrets: inherit` | GitHub Actions keyword, not a credential |
-| `terraform.tfvars.example` (3 files) | `aws_secret_access_key = "test"` (commented) | Commented-out placeholder for LocalStack |
-| `apps/backend/README.md` | `postgres://USER:PASS@HOST` | Example DSN with placeholder credentials |
+**Excluded from scanning** (configured in `reusable-app-pipeline.yml`):
 
-Fix: add `# pragma: allowlist secret` at the end of each flagged line. This is the official detect-secrets inline suppression directive.
-
-```bash
-# Example
-export DB_DSN="postgres://USER:PASS@localhost:5432/db" # pragma: allowlist secret
+```
+README.md / **/README.md   — documentation only, no real credentials
+*.example / *.tfvars.example — placeholder values for LocalStack/local dev
 ```
 
-> Never use `pragma: allowlist secret` on real credentials. Only on confirmed false positives (example files, placeholder values, tool keywords).
+These files are excluded via the `exclude` regex in the detect-secrets hook config so the scanner focuses on source code and workflow files where real secrets could land.
+
+**False positives in scanned files** — suppress inline with `# pragma: allowlist secret`:
+
+| File | Trigger | Fix applied |
+|------|---------|-------------|
+| `frontend.yml`, `backend.yml` | `secrets: inherit` | `# pragma: allowlist secret` on that line |
+
+```bash
+# pragma: allowlist secret — use only on confirmed false positives, never on real credentials
+secrets: inherit # pragma: allowlist secret
+```
 
 #### Stage 1 — caller workflow permissions
 
