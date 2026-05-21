@@ -62,8 +62,11 @@ jobs:
             --exclude-paths=/th-exclude.txt \
             2>&1 | tee /tmp/trufflehog.log
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.detect_secrets.outcome }}" = "failure" ] && FAILED="detect-secrets" \
@@ -76,7 +79,7 @@ jobs:
           jq -n \
             --arg text ":rotating_light: *[Infra - Stage 1 - Secret Detection] ${FAILED} failed* — branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if secret detected
@@ -179,8 +182,11 @@ jobs:
           done 2>&1 | tee /tmp/kyverno.log
 
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.checkov.outcome == 'failure' || steps.tfsec.outcome == 'failure' || steps.conftest.outcome == 'failure' || steps.kyverno.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.checkov.outcome == 'failure' || steps.tfsec.outcome == 'failure' || steps.conftest.outcome == 'failure' || steps.kyverno.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.checkov.outcome }}" = "failure" ] && FAILED="Checkov"
@@ -195,7 +201,7 @@ jobs:
           jq -n \
             --arg text ":warning: *[Infra - Stage 2 - IaC Scanning] ${FAILED} failed* — branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if IaC check failed

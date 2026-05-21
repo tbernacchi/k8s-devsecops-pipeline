@@ -104,8 +104,11 @@ jobs:
             --exclude-paths=/th-exclude.txt \
             2>&1 | tee /tmp/trufflehog.log
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.detect_secrets.outcome == 'failure' || steps.gitleaks.outcome == 'failure' || steps.trufflehog.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.detect_secrets.outcome }}" = "failure" ] && FAILED="detect-secrets" \
@@ -118,7 +121,7 @@ jobs:
           jq -n \
             --arg text ":rotating_light: *[Stage 1 - Secret Detection] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if secret detected
@@ -205,8 +208,11 @@ jobs:
         if: env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == ''
         run: echo "Skipping SonarQube because SONAR_TOKEN/SONAR_HOST_URL are not configured."
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.go_tests.outcome == 'failure' || steps.python_tests.outcome == 'failure' || steps.sonar_scan.outcome == 'failure' || steps.sonar_qg.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.go_tests.outcome == 'failure' || steps.python_tests.outcome == 'failure' || steps.sonar_scan.outcome == 'failure' || steps.sonar_qg.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.go_tests.outcome }}" = "failure" ] && FAILED="Go tests" \
@@ -221,7 +227,7 @@ jobs:
           jq -n \
             --arg text ":x: *[Stage 2 - Unit Tests / Quality] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if tests or quality gate failed
@@ -270,8 +276,11 @@ jobs:
         continue-on-error: true
         uses: github/codeql-action/analyze@v4
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.semgrep.outcome == 'failure' || steps.codeql_analyze.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.semgrep.outcome == 'failure' || steps.codeql_analyze.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.semgrep.outcome }}" = "failure" ] && FAILED="Semgrep" \
@@ -281,7 +290,7 @@ jobs:
           jq -n \
             --arg text ":warning: *[Stage 3 - SAST] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if SAST check failed
@@ -344,8 +353,11 @@ jobs:
         if: inputs.codeql_language != 'go' && inputs.codeql_language != 'python'
         run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.trivy.outcome == 'failure' || steps.owasp.outcome == 'failure' || steps.snyk_go.outcome == 'failure' || steps.snyk_python.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.trivy.outcome == 'failure' || steps.owasp.outcome == 'failure' || steps.snyk_go.outcome == 'failure' || steps.snyk_python.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.trivy.outcome }}" = "failure" ] && FAILED="Trivy" \
@@ -360,7 +372,7 @@ jobs:
           jq -n \
             --arg text ":biohazard_sign: *[Stage 4 - SCA] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if SCA check failed
@@ -419,8 +431,11 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
       - name: "Slack | k8s-devsecops-pipe"
-        if: (steps.build.outcome == 'failure' || steps.cosign.outcome == 'failure' || steps.attest.outcome == 'failure') && secrets.SLACK_WEBHOOK_K8S_DEVSECOPS != ''
+        if: steps.build.outcome == 'failure' || steps.cosign.outcome == 'failure' || steps.attest.outcome == 'failure'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}
         run: |
+          [ -z "$SLACK_WEBHOOK" ] && exit 0
           FAILED=""
           LOG=""
           [ "${{ steps.build.outcome }}" = "failure" ] && FAILED="Docker build"
@@ -432,7 +447,7 @@ jobs:
           jq -n \
             --arg text ":x: *[Stage 5 - Build / Sign / Attest] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
             '{text: $text}' | \
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_DEVSECOPS }}" \
+          curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
       - name: Fail if build or signing failed
