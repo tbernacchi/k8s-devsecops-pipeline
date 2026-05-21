@@ -197,7 +197,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@0.28.0  # pin to SHA for production
+        uses: aquasecurity/trivy-action@0.29.0
         with:
           scan-type: fs
           scan-ref: ${{ inputs.app_path }}
@@ -205,7 +205,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
       - name: OWASP Dependency Check
-        uses: dependency-check/Dependency-Check_Action@v6.0.0  # pin to SHA for production
+        uses: dependency-check/Dependency-Check_Action@v9.2.0
         with:
           project: ${{ inputs.app_name }}
           path: ${{ inputs.app_path }}
@@ -217,7 +217,7 @@ jobs:
       - name: Snyk (Go)
         if: inputs.codeql_language == 'go'
         continue-on-error: true
-        uses: snyk/actions/golang@0.4.0  # pin to SHA for production
+        uses: snyk/actions/golang@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -225,7 +225,7 @@ jobs:
       - name: Snyk (Python)
         if: inputs.codeql_language == 'python'
         continue-on-error: true
-        uses: snyk/actions/python@0.4.0  # pin to SHA for production
+        uses: snyk/actions/python@master
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
@@ -247,7 +247,7 @@ jobs:
         run: |
           docker build -f "${{ inputs.dockerfile_path }}" -t "local/${{ inputs.app_name }}:${{ github.sha }}" "${{ inputs.app_path }}"
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.28.0  # pin to SHA for production
+        uses: aquasecurity/trivy-action@0.29.0
         with:
           image-ref: local/${{ inputs.app_name }}:${{ github.sha }}
           severity: HIGH,CRITICAL
