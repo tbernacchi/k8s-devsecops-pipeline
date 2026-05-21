@@ -58,6 +58,8 @@ on:
         required: false
       SLACK_WEBHOOK_K8S_DEVSECOPS:
         required: false
+      NVD_API_KEY:
+        required: false
 
 jobs:
   # ──────────────────────────────────────────────
@@ -324,6 +326,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Get date for cache key
+        id: date
+        run: echo "date=$(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - name: Cache OWASP DC NVD database
+        uses: actions/cache@v4
+        with:
+          path: ~/.owasp-dc
+          key: owasp-dc-${{ runner.os }}-${{ steps.date.outputs.date }}
+          restore-keys: owasp-dc-${{ runner.os }}-
       - name: Trivy dependency scan
         id: trivy
         continue-on-error: true
@@ -337,10 +348,13 @@ jobs:
         id: owasp
         continue-on-error: true
         run: |
-          mkdir -p reports
+          mkdir -p reports ~/.owasp-dc
+          NVD_FLAG=""
+          [ -n "${{ secrets.NVD_API_KEY }}" ] && NVD_FLAG="--nvdApiKey ${{ secrets.NVD_API_KEY }}"
           docker run --rm \
             -v "$PWD/${{ inputs.app_path }}:/src" \
             -v "$PWD/reports:/report" \
+            -v "$HOME/.owasp-dc:/usr/share/dependency-check/data" \
             owasp/dependency-check:latest \
             --scan /src \
             --format JSON \
@@ -348,6 +362,7 @@ jobs:
             --project "${{ inputs.app_name }}" \
             --enableRetired \
             --failOnCVSS 7 \
+            $NVD_FLAG \
             2>&1 | tee /tmp/owasp.log
       - name: Snyk (Go)
         id: snyk_go
