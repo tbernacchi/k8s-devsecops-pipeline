@@ -1,0 +1,15 @@
+# Global owner — review required on all PRs
+* @tbernacchi
+
+# Pipeline
+.github/workflows/ @tbernacchi
+
+# Apps
+devsecops/apps/frontend/ @tbernacchi
+devsecops/apps/backend/ @tbernacchi
+
+# Infrastructure
+devsecops/infra/ @tbernacchi
+
+# Docs
+devsecops/docs/ @tbernacchi
