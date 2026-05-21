@@ -169,7 +169,7 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
-      - uses: semgrep/semgrep-action@v1
+      - uses: semgrep/semgrep-action@v3
         with:
           config: auto
       - uses: github/codeql-action/init@v3
