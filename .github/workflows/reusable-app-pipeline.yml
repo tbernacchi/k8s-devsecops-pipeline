@@ -74,18 +74,7 @@ jobs:
             --exclude-files '.*README\.md' \
             --exclude-files '.*\.example$' \
             > .secrets.baseline
-          python3 -c "
-          import json, sys
-          with open('.secrets.baseline') as f:
-              data = json.load(f)
-          results = data.get('results', {})
-          if results:
-              for fname, secrets in results.items():
-                  for secret in secrets:
-                      print(f'SECRET FOUND: {fname} - {secret[\"type\"]}')
-              sys.exit(1)
-          print('No secrets detected.')
-          "
+          python3 -c "import json,sys; r=json.load(open('.secrets.baseline')).get('results',{}); [print('SECRET FOUND:',f,s['type']) for f,ss in r.items() for s in ss]; sys.exit(bool(r))"
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
