@@ -56,7 +56,13 @@ on:
         required: false
       PROD_BASE_URL:
         required: false
-      SLACK_WEBHOOK_URL:
+      SLACK_WEBHOOK_K8S_SEC_SECRETS:
+        required: false
+      SLACK_WEBHOOK_K8S_SEC_SAST:
+        required: false
+      SLACK_WEBHOOK_K8S_SEC_CVE:
+        required: false
+      SLACK_WEBHOOK_K8S_CI_FAILURES:
         required: false
 
 jobs:
@@ -95,6 +101,12 @@ jobs:
             trufflesecurity/trufflehog:latest filesystem /pwd \
             --only-verified --fail --no-update \
             --exclude-paths=/th-exclude.txt
+      - name: "Slack | k8s-sec-secrets"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_SEC_SECRETS != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_SEC_SECRETS }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":rotating_light: *SECRET DETECTED* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\ndetect-secrets / Gitleaks / TruffleHog found a verified secret. Rotate credentials immediately.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
   # ──────────────────────────────────────────────
   # Stage 2 – Unit Tests + Code Quality
@@ -166,6 +178,12 @@ jobs:
       - name: SonarQube skipped
         if: env.SONAR_TOKEN == '' || env.SONAR_HOST_URL == ''
         run: echo "Skipping SonarQube because SONAR_TOKEN/SONAR_HOST_URL are not configured."
+      - name: "Slack | k8s-ci-failures"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_CI_FAILURES != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_CI_FAILURES }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":x: *Unit Tests / Quality Gate failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
   # ──────────────────────────────────────────────
   # Stage 3 – SAST  (parallel with 4 and 5)
@@ -196,6 +214,12 @@ jobs:
       - if: inputs.codeql_language == 'go'
         uses: github/codeql-action/autobuild@v4
       - uses: github/codeql-action/analyze@v4
+      - name: "Slack | k8s-sec-sast"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_SEC_SAST != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_SEC_SAST }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":warning: *SAST finding* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\nSemgrep or CodeQL detected a vulnerability in source code.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
   # ──────────────────────────────────────────────
   # Stage 4 – SCA  (parallel with 3 and 5)
@@ -244,6 +268,12 @@ jobs:
       - name: Snyk skipped
         if: inputs.codeql_language != 'go' && inputs.codeql_language != 'python'
         run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
+      - name: "Slack | k8s-sec-cve"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_SEC_CVE != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_SEC_CVE }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":biohazard_sign: *CVE HIGH/CRITICAL found* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\nTrivy / OWASP DC / Snyk detected a vulnerable dependency.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
   # ──────────────────────────────────────────────
   # Stage 5 – Build + Sign + Attest
@@ -289,6 +319,12 @@ jobs:
           subject-name: ${{ steps.meta.outputs.image_ref }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+      - name: "Slack | k8s-ci-failures"
+        if: failure() && secrets.SLACK_WEBHOOK_K8S_CI_FAILURES != ''
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_K8S_CI_FAILURES }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\":x: *Build / Sign / Attest failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>\"}"
 
   # ──────────────────────────────────────────────
   # Stage 6 – Deploy Dev
@@ -435,24 +471,3 @@ jobs:
             fi
           fi
 
-  # ──────────────────────────────────────────────
-  # Slack – Notify on failure
-  # ──────────────────────────────────────────────
-  notify_failure:
-    name: "Notify Slack on Failure"
-    needs:
-      - stage1_secret_detection
-      - stage2_unit_tests_quality
-      - stage3_sast
-      - stage4_sca
-      - stage6_build_sign_attest
-    if: failure() && secrets.SLACK_WEBHOOK_URL != ''
-    runs-on: ubuntu-latest
-    steps:
-      - name: Post failure to Slack
-        run: |
-          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
-            -H 'Content-Type: application/json' \
-            -d '{
-              "text": ":x: *Pipeline failed* — `${{ inputs.app_name }}` on `${{ github.ref_name }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
-            }'
