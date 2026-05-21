@@ -270,6 +270,49 @@ GitHub sends an email when the pipeline reaches prod deploy.
 
 ---
 
+### Troubleshooting
+
+#### Stage 1 — detect-secrets false positives
+
+`detect-secrets` uses keyword heuristics — any line containing `secret`, `password`, `key` next to a value triggers a finding, regardless of context. These are **not real secrets**:
+
+| File | Trigger | Reason |
+|------|---------|--------|
+| `frontend.yml`, `backend.yml` | `secrets: inherit` | GitHub Actions keyword, not a credential |
+| `terraform.tfvars.example` (3 files) | `# aws_secret_access_key = "test"` | Commented-out placeholder for LocalStack |
+| `apps/backend/README.md` | `postgres://user:pass@localhost` | Example DSN with placeholder credentials |
+
+Fix: add `# pragma: allowlist secret` at the end of each flagged line. This is the official detect-secrets inline suppression directive.
+
+```bash
+# Example
+export DB_DSN="postgres://user:pass@localhost:5432/db" # pragma: allowlist secret
+```
+
+> Never use `pragma: allowlist secret` on real credentials. Only on confirmed false positives (example files, placeholder values, tool keywords).
+
+#### Stage 1 — caller workflow permissions
+
+GitHub reusable workflows do not inherit permissions. The caller (`frontend.yml`, `backend.yml`) must explicitly declare every permission the entire pipeline needs:
+
+```
+Error: The nested job 'stage3_sast' is requesting 'security-events: write',
+but is only allowed 'security-events: none'.
+```
+
+Fix: add `permissions` block to both caller workflows:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write  # CodeQL SARIF upload (stage 3)
+  packages: write          # GHCR push (stage 6)
+  id-token: write          # Cosign OIDC keyless signing (stage 6)
+  attestations: write      # SLSA provenance (stage 6)
+```
+
+---
+
 ### Reference docs
 
 | Document | Description |
