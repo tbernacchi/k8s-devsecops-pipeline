@@ -5,13 +5,11 @@ on:
   push:
     paths:
       - "devsecops/apps/frontend/**"
-      - "devsecops/infra/**"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
   pull_request:
     paths:
       - "devsecops/apps/frontend/**"
-      - "devsecops/infra/**"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
 
