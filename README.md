@@ -34,6 +34,41 @@ Stages 1–6 run on GitHub-hosted AMD64 runners. Stages 7–12 run on a self-hos
 - **Runners**: Actions Runner Controller (ARC) — `k8s-system-design` scale set
 - **Security**: Cosign keyless signing, SLSA provenance, OWASP ZAP DAST, SonarCloud
 
+### Triggering the pipeline
+
+**Manual trigger (both apps):**
+```bash
+gh workflow run frontend.yml
+gh workflow run backend.yml
+```
+
+**Manual trigger (single app):**
+```bash
+gh workflow run frontend.yml   # frontend only
+gh workflow run backend.yml    # backend only
+```
+
+**Automatic trigger on push:**
+```bash
+# triggers frontend pipeline
+git commit -m "..." && git push   # when touching devsecops/apps/frontend/**
+
+# triggers backend pipeline
+git commit -m "..." && git push   # when touching devsecops/apps/backend/**
+
+# triggers both
+git commit -m "..." && git push   # when touching .github/workflows/reusable-app-pipeline.yml
+```
+
+**Monitor run:**
+```bash
+gh run list --workflow=frontend.yml
+gh run watch
+```
+
+**Stage 12 — prod deploy requires manual approval.**
+GitHub sends a notification email. Go to **Actions → the run → Review deployments → Approve**.
+
 ### Reference docs
 
 | Document | Description |
