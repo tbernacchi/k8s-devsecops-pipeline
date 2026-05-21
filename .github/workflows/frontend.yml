@@ -32,4 +32,6 @@ jobs:
       deploy_name: frontend
       container_name: frontend
       route_prefix: /frontend
+      deploy_dev: false
+      deploy_staging: false
     secrets: inherit # pragma: allowlist secret

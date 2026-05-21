@@ -31,6 +31,14 @@ on:
         required: false
         type: string
         default: "app"
+      deploy_dev:
+        required: false
+        type: boolean
+        default: false
+      deploy_staging:
+        required: false
+        type: boolean
+        default: false
     secrets:
       SONAR_TOKEN:
         required: false
@@ -47,6 +55,8 @@ on:
       STAGING_BASE_URL:
         required: false
       PROD_BASE_URL:
+        required: false
+      SLACK_WEBHOOK_URL:
         required: false
 
 jobs:
@@ -236,31 +246,11 @@ jobs:
         run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
 
   # ──────────────────────────────────────────────
-  # Stage 5 – Container + IaC Scanning  (parallel with 3 and 4)
-  # ──────────────────────────────────────────────
-  stage5_container_iac_scanning:
-    name: "Stage 5 - Container and IaC Scanning"
-    needs: stage2_unit_tests_quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build image for scanning
-        run: |
-          docker build -f "${{ inputs.dockerfile_path }}" -t "local/${{ inputs.app_name }}:${{ github.sha }}" "${{ inputs.app_path }}"
-      - name: Trivy image scan
-        run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:latest image \
-            --severity HIGH,CRITICAL --exit-code 1 \
-            "local/${{ inputs.app_name }}:${{ github.sha }}"
-
-  # ──────────────────────────────────────────────
-  # Stage 6 – Build + Sign + Attest
+  # Stage 5 – Build + Sign + Attest
   # ──────────────────────────────────────────────
   stage6_build_sign_attest:
-    name: "Stage 6 - Build and Artifact Signing"
-    needs: [stage3_sast, stage4_sca, stage5_container_iac_scanning]
+    name: "Stage 5 - Build and Artifact Signing"
+    needs: [stage3_sast, stage4_sca]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -301,12 +291,12 @@ jobs:
           push-to-registry: true
 
   # ──────────────────────────────────────────────
-  # Stage 7 – Deploy Dev
+  # Stage 6 – Deploy Dev
   # ──────────────────────────────────────────────
   deploy_dev:
-    name: "Stage 7 - Dev Auto Deploy"
+    name: "Stage 6 - Dev Auto Deploy"
     needs: stage6_build_sign_attest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.deploy_dev
     runs-on: k8s-system-design
     steps:
       - uses: azure/setup-kubectl@v4
@@ -330,12 +320,12 @@ jobs:
           kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
 
   # ──────────────────────────────────────────────
-  # Stage 8 – Deploy Staging
+  # Stage 7 – Deploy Staging
   # ──────────────────────────────────────────────
   deploy_staging:
-    name: "Stage 8 - Staging Auto Deploy"
+    name: "Stage 7 - Staging Auto Deploy"
     needs: [deploy_dev, stage6_build_sign_attest]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.deploy_staging
     runs-on: k8s-system-design
     steps:
       - uses: azure/setup-kubectl@v4
@@ -359,12 +349,12 @@ jobs:
           kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
 
   # ──────────────────────────────────────────────
-  # Stage 9 – Smoke Tests
+  # Stage 8 – Smoke Tests
   # ──────────────────────────────────────────────
   stage7_integration_e2e:
-    name: "Stage 9 - Smoke Tests"
+    name: "Stage 8 - Smoke Tests"
     needs: deploy_staging
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.deploy_staging
     runs-on: k8s-system-design
     steps:
       - name: Smoke tests on staging
@@ -373,12 +363,12 @@ jobs:
           curl -fsS "${{ secrets.STAGING_BASE_URL }}${{ inputs.route_prefix }}/healthz"
 
   # ──────────────────────────────────────────────
-  # Stage 10 – DAST
+  # Stage 9 – DAST
   # ──────────────────────────────────────────────
   stage8_dast:
-    name: "Stage 10 - DAST"
+    name: "Stage 9 - DAST"
     needs: stage7_integration_e2e
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.deploy_staging
     runs-on: k8s-system-design
     steps:
       - uses: zaproxy/action-baseline@v0.14.0
@@ -387,12 +377,12 @@ jobs:
           fail_action: true
 
   # ──────────────────────────────────────────────
-  # Stage 11 – Policy Gate (verifica assinatura real)
+  # Stage 10 – Policy Gate (verifica assinatura real)
   # ──────────────────────────────────────────────
   policy_gate:
-    name: "Stage 11 - Policy Gate"
+    name: "Stage 10 - Policy Gate"
     needs: [stage8_dast, stage6_build_sign_attest]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.deploy_staging
     runs-on: k8s-system-design
     steps:
       - uses: sigstore/cosign-installer@v3
@@ -406,12 +396,12 @@ jobs:
             "$IMAGE"
 
   # ──────────────────────────────────────────────
-  # Stage 12 – Prod Deploy (manual approval required)
+  # Stage 11 – Prod Deploy (manual approval required)
   # ──────────────────────────────────────────────
   deploy_prod:
-    name: "Stage 12 - Prod Approval and Progressive Deploy"
+    name: "Stage 11 - Prod Approval and Progressive Deploy"
     needs: [policy_gate, stage6_build_sign_attest]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.deploy_staging
     runs-on: k8s-system-design
     environment: production
     steps:
@@ -444,3 +434,25 @@ jobs:
               exit 1
             fi
           fi
+
+  # ──────────────────────────────────────────────
+  # Slack – Notify on failure
+  # ──────────────────────────────────────────────
+  notify_failure:
+    name: "Notify Slack on Failure"
+    needs:
+      - stage1_secret_detection
+      - stage2_unit_tests_quality
+      - stage3_sast
+      - stage4_sca
+      - stage6_build_sign_attest
+    if: failure() && secrets.SLACK_WEBHOOK_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to Slack
+        run: |
+          curl -sSf -X POST "${{ secrets.SLACK_WEBHOOK_URL }}" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": ":x: *Pipeline failed* — `${{ inputs.app_name }}` on `${{ github.ref_name }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+            }'

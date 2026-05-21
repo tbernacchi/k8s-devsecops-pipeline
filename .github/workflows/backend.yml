@@ -32,4 +32,6 @@ jobs:
       deploy_name: backend
       container_name: backend
       route_prefix: /backend
+      deploy_dev: false
+      deploy_staging: false
     secrets: inherit # pragma: allowlist secret
