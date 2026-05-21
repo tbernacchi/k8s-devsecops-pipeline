@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "devops-system-design-challenge/apps/frontend/**"
-      - "devops-system-design-challenge/infra/**"
+      - "devsecops/apps/frontend/**"
+      - "devsecops/infra/**"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
   pull_request:
     paths:
-      - "devops-system-design-challenge/apps/frontend/**"
-      - "devops-system-design-challenge/infra/**"
+      - "devsecops/apps/frontend/**"
+      - "devsecops/infra/**"
       - ".github/workflows/frontend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
 
@@ -20,10 +20,10 @@ jobs:
     uses: ./.github/workflows/reusable-app-pipeline.yml
     with:
       app_name: frontend
-      app_path: devops-system-design-challenge/apps/frontend
-      dockerfile_path: devops-system-design-challenge/apps/frontend/Dockerfile
+      app_path: devsecops/apps/frontend
+      dockerfile_path: devsecops/apps/frontend/Dockerfile
       codeql_language: python
-      dependency_file: devops-system-design-challenge/apps/frontend/src/frontend/requirements.txt
+      dependency_file: devsecops/apps/frontend/src/frontend/requirements.txt
       deploy_name: frontend
       container_name: frontend
       route_prefix: /frontend

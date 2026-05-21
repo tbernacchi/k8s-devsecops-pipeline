@@ -21,7 +21,7 @@ export BACKEND_PORT=8080
 
 ## Rodar localmente
 
-No diretorio `devops-system-design-challenge/frontend/src/frontend`:
+No diretorio `devsecops/frontend/src/frontend`:
 
 ```bash
 python3 -m venv .venv
@@ -38,7 +38,7 @@ A aplicacao sobe em `http://localhost:8000`.
 
 ## Rodar com Docker
 
-No diretorio `devops-system-design-challenge/frontend`:
+No diretorio `devsecops/frontend`:
 
 ```bash
 docker build -t frontend:local .

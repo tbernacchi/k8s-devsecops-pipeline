@@ -33,11 +33,11 @@ flowchart LR
 - Validar localmente com Docker antes da infra cloud.
 
 Arquivos base para esta etapa:
-- [devops-system-design-challenge/frontend/src/frontend/frontend.py](devops-system-design-challenge/frontend/src/frontend/frontend.py)
-- [devops-system-design-challenge/frontend/src/frontend/templates/index.html](devops-system-design-challenge/frontend/src/frontend/templates/index.html)
-- [devops-system-design-challenge/backend/main.go](devops-system-design-challenge/backend/main.go)
-- [devops-system-design-challenge/frontend/Dockerfile](devops-system-design-challenge/frontend/Dockerfile)
-- [devops-system-design-challenge/backend/Dockerfile](devops-system-design-challenge/backend/Dockerfile)
+- [devsecops/frontend/src/frontend/frontend.py](devsecops/frontend/src/frontend/frontend.py)
+- [devsecops/frontend/src/frontend/templates/index.html](devsecops/frontend/src/frontend/templates/index.html)
+- [devsecops/backend/main.go](devsecops/backend/main.go)
+- [devsecops/frontend/Dockerfile](devsecops/frontend/Dockerfile)
+- [devsecops/backend/Dockerfile](devsecops/backend/Dockerfile)
 
 ## Etapa 2 - Infraestrutura AWS com Terraform
 

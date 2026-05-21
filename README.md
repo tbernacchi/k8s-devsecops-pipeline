@@ -2,7 +2,7 @@
 
 Practice repository for **System Design**, **Software Architecture**, and **DevSecOps**.
 
-## devops-system-design-challenge
+## devsecops
 
 The main focus of this repo is a **production-grade DevSecOps pipeline** built with GitHub Actions, targeting a Python frontend and Go backend deployed on a self-hosted K3s cluster (Raspberry Pi 4, ARM64).
 
@@ -38,8 +38,8 @@ Stages 1–6 run on GitHub-hosted AMD64 runners. Stages 7–12 run on a self-hos
 
 | Document | Description |
 |----------|-------------|
-| [`docs/vault-eso-tradeoffs.html`](devops-system-design-challenge/docs/vault-eso-tradeoffs.html) | When to use HashiCorp Vault + External Secrets Operator vs GitHub Secrets |
-| [`docs/pipeline-runner-strategy.html`](devops-system-design-challenge/docs/pipeline-runner-strategy.html) | Runner split rationale, trade-offs, ArgoCD + Argo Rollouts integration path |
+| [`docs/vault-eso-tradeoffs.html`](devsecops/docs/vault-eso-tradeoffs.html) | When to use HashiCorp Vault + External Secrets Operator vs GitHub Secrets |
+| [`docs/pipeline-runner-strategy.html`](devsecops/docs/pipeline-runner-strategy.html) | Runner split rationale, trade-offs, ArgoCD + Argo Rollouts integration path |
 | [`gh-runner/README.md`](gh-runner/README.md) | ARC self-hosted runner install instructions |
 
 ## System Design studies

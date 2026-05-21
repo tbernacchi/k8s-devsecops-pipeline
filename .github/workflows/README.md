@@ -46,7 +46,7 @@ The reusable workflow expects these secrets in the repository/environment:
 
 The reusable workflow includes a Kyverno policy-as-code step during container/IaC scanning.
 
-- It scans Kubernetes YAML files under `devops-system-design-challenge/infra/helm/**` and `devops-system-design-challenge/k8s/**`.
+- It scans Kubernetes YAML files under `devsecops/infra/helm/**` and `devsecops/k8s/**`.
 - It currently enforces baseline checks like:
   - `runAsNonRoot: true`
   - `readOnlyRootFilesystem: true` for containers

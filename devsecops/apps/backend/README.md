@@ -21,7 +21,7 @@ export DB_READ_DSN="postgres://system-design:system-design@localhost:5432/system
 
 ## Rodar localmente
 
-No diretorio `devops-system-design-challenge/backend`:
+No diretorio `devsecops/backend`:
 
 ```bash
 go mod download
@@ -41,7 +41,7 @@ A API sobe em `http://localhost:8080`.
 
 ## Rodar com Docker
 
-No diretorio `devops-system-design-challenge/backend`:
+No diretorio `devsecops/backend`:
 
 ```bash
 docker build -t backend:local .

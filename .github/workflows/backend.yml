@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "devops-system-design-challenge/apps/backend/**"
-      - "devops-system-design-challenge/infra/**"
+      - "devsecops/apps/backend/**"
+      - "devsecops/infra/**"
       - ".github/workflows/backend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
   pull_request:
     paths:
-      - "devops-system-design-challenge/apps/backend/**"
-      - "devops-system-design-challenge/infra/**"
+      - "devsecops/apps/backend/**"
+      - "devsecops/infra/**"
       - ".github/workflows/backend.yml"
       - ".github/workflows/reusable-app-pipeline.yml"
 
@@ -20,10 +20,10 @@ jobs:
     uses: ./.github/workflows/reusable-app-pipeline.yml
     with:
       app_name: backend
-      app_path: devops-system-design-challenge/apps/backend
-      dockerfile_path: devops-system-design-challenge/apps/backend/Dockerfile
+      app_path: devsecops/apps/backend
+      dockerfile_path: devsecops/apps/backend/Dockerfile
       codeql_language: go
-      dependency_file: devops-system-design-challenge/apps/backend/go.mod
+      dependency_file: devsecops/apps/backend/go.mod
       deploy_name: backend
       container_name: backend
       route_prefix: /backend
