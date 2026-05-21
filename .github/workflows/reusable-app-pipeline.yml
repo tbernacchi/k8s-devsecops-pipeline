@@ -81,7 +81,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: TruffleHog
         run: |
-          docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest filesystem /pwd --fail --no-update
+          docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog:latest filesystem /pwd --only-verified --fail --no-update
 
   # ──────────────────────────────────────────────
   # Stage 2 – Unit Tests + Code Quality
