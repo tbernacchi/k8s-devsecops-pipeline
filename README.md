@@ -1,8 +1,8 @@
-# system-design-2026
+# k8s-devsecops-pipeline
 
 Practice repository for **System Design**, **Software Architecture**, and **DevSecOps**.
 
-## devsecops
+## devsecops/
 
 The main focus of this repo is a **production-grade DevSecOps pipeline** built with GitHub Actions, targeting a Python frontend and Go backend deployed on a self-hosted K3s cluster (Raspberry Pi 4, ARM64).
 
