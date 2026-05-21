@@ -77,8 +77,14 @@ jobs:
             && FAILED="${FAILED:+$FAILED, }TruffleHog" \
             && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/trufflehog.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
           jq -n \
-            --arg text ":rotating_light: *[Infra - Stage 1 - Secret Detection] ${FAILED} failed* — branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":rotating_light: *[Infra - Stage 1 - Secret Detection] ${FAILED} failed* — branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
@@ -199,8 +205,14 @@ jobs:
             && FAILED="${FAILED:+$FAILED, }Kyverno" \
             && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/kyverno.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
           jq -n \
-            --arg text ":warning: *[Infra - Stage 2 - IaC Scanning] ${FAILED} failed* — branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":warning: *[Infra - Stage 2 - IaC Scanning] ${FAILED} failed* — branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-

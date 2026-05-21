@@ -119,8 +119,14 @@ jobs:
             && FAILED="${FAILED:+$FAILED, }TruffleHog" \
             && { [ -z "$LOG" ] && LOG=$(tail -25 /tmp/trufflehog.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g'); }
           jq -n \
-            --arg text ":rotating_light: *[Stage 1 - Secret Detection] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":rotating_light: *[Stage 1 - Secret Detection] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
@@ -225,8 +231,14 @@ jobs:
           [ "${{ steps.sonar_qg.outcome }}" = "failure" ] \
             && FAILED="${FAILED:+$FAILED, }SonarQube Quality Gate"
           jq -n \
-            --arg text ":x: *[Stage 2 - Unit Tests / Quality] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":x: *[Stage 2 - Unit Tests / Quality] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
@@ -288,8 +300,14 @@ jobs:
           [ "${{ steps.codeql_analyze.outcome }}" = "failure" ] \
             && FAILED="${FAILED:+$FAILED, }CodeQL"
           jq -n \
-            --arg text ":warning: *[Stage 3 - SAST] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":warning: *[Stage 3 - SAST] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
@@ -325,7 +343,7 @@ jobs:
             -v "$PWD/reports:/report" \
             owasp/dependency-check:latest \
             --scan /src \
-            --format HTML \
+            --format JSON \
             --out /report \
             --project "${{ inputs.app_name }}" \
             --enableRetired \
@@ -370,8 +388,14 @@ jobs:
           [ "${{ steps.snyk_python.outcome }}" = "failure" ] \
             && FAILED="${FAILED:+$FAILED, }Snyk"
           jq -n \
-            --arg text ":biohazard_sign: *[Stage 4 - SCA] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":biohazard_sign: *[Stage 4 - SCA] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
@@ -445,8 +469,14 @@ jobs:
           [ "${{ steps.attest.outcome }}" = "failure" ] \
             && FAILED="${FAILED:+$FAILED, }Attest"
           jq -n \
-            --arg text ":x: *[Stage 5 - Build / Sign / Attest] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`\n\`\`\`${LOG:-see run logs}\`\`\`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View full run>" \
-            '{text: $text}' | \
+            --arg header ":x: *[Stage 5 - Build / Sign / Attest] ${FAILED} failed* — \`${{ inputs.app_name }}\` branch \`${{ github.ref_name }}\`" \
+            --arg log "${LOG:-see run logs}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{"blocks":[
+              {"type":"section","text":{"type":"mrkdwn","text":$header}},
+              {"type":"section","text":{"type":"mrkdwn","text":("```" + $log + "```")}},
+              {"type":"section","text":{"type":"mrkdwn","text":("<" + $url + "|View full run>")}}
+            ]}' | \
           curl -sSf -X POST "$SLACK_WEBHOOK" \
             -H 'Content-Type: application/json' \
             -d @-
