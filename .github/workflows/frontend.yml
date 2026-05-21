@@ -34,4 +34,4 @@ jobs:
       deploy_name: frontend
       container_name: frontend
       route_prefix: /frontend
-    secrets: inherit
+    secrets: inherit # pragma: allowlist secret

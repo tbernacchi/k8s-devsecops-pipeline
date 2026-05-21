@@ -15,8 +15,8 @@ Aplicacao REST de usuarios (CRUD) em Go.
 Exemplo:
 
 ```bash
-export DB_WRITE_DSN="postgres://system-design:system-design@localhost:5432/system-design?sslmode=disable"
-export DB_READ_DSN="postgres://system-design:system-design@localhost:5432/system-design?sslmode=disable"
+export DB_WRITE_DSN="postgres://system-design:system-design@localhost:5432/system-design?sslmode=disable" # pragma: allowlist secret
+export DB_READ_DSN="postgres://system-design:system-design@localhost:5432/system-design?sslmode=disable" # pragma: allowlist secret
 ```
 
 ## Rodar localmente

@@ -3,7 +3,7 @@ node_role_arn    = "arn:aws:iam::123456789012:role/devops-system-design-eks-node
 
 # Exemplo para LocalStack/FLOCI:
 # aws_access_key_id                  = "test"
-# aws_secret_access_key              = "test"
+# aws_secret_access_key              = "test" # pragma: allowlist secret
 # aws_skip_credentials_validation    = true
 # aws_skip_metadata_api_check        = true
 # aws_skip_requesting_account_id     = true
