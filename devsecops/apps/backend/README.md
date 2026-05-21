@@ -46,7 +46,7 @@ No diretorio `devsecops/backend`:
 ```bash
 docker build -t backend:local .
 docker run --rm -p 8080:8080 \
-  -e DB_WRITE_DSN="postgres://system-design:system-design@host.docker.internal:5432/system-design?sslmode=disable" \
-  -e DB_READ_DSN="postgres://system-design:system-design@host.docker.internal:5432/system-design?sslmode=disable" \
+  -e DB_WRITE_DSN="postgres://system-design:system-design@host.docker.internal:5432/system-design?sslmode=disable" \ # pragma: allowlist secret
+  -e DB_READ_DSN="postgres://system-design:system-design@host.docker.internal:5432/system-design?sslmode=disable" \ # pragma: allowlist secret
   backend:local
 ```

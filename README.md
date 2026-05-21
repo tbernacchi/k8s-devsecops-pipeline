@@ -279,14 +279,14 @@ GitHub sends an email when the pipeline reaches prod deploy.
 | File | Trigger | Reason |
 |------|---------|--------|
 | `frontend.yml`, `backend.yml` | `secrets: inherit` | GitHub Actions keyword, not a credential |
-| `terraform.tfvars.example` (3 files) | `# aws_secret_access_key = "test"` | Commented-out placeholder for LocalStack |
-| `apps/backend/README.md` | `postgres://user:pass@localhost` | Example DSN with placeholder credentials |
+| `terraform.tfvars.example` (3 files) | `aws_secret_access_key = "test"` (commented) | Commented-out placeholder for LocalStack |
+| `apps/backend/README.md` | `postgres://USER:PASS@HOST` | Example DSN with placeholder credentials |
 
 Fix: add `# pragma: allowlist secret` at the end of each flagged line. This is the official detect-secrets inline suppression directive.
 
 ```bash
 # Example
-export DB_DSN="postgres://user:pass@localhost:5432/db" # pragma: allowlist secret
+export DB_DSN="postgres://USER:PASS@localhost:5432/db" # pragma: allowlist secret
 ```
 
 > Never use `pragma: allowlist secret` on real credentials. Only on confirmed false positives (example files, placeholder values, tool keywords).
