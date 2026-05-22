@@ -627,8 +627,15 @@ jobs:
     runs-on: k8s-system-design
     environment: production
     steps:
+      - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
-      - name: Progressive rollout with auto rollback
+      - name: Install kubectl-argo-rollouts plugin
+        run: |
+          curl -fsSL https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-arm64 \
+            -o /tmp/kubectl-argo-rollouts
+          chmod +x /tmp/kubectl-argo-rollouts
+          sudo mv /tmp/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
+      - name: Canary deploy with auto rollback
         env:
           KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
           IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
@@ -640,22 +647,9 @@ jobs:
           chmod 600 "$kube_config"
           export KUBECONFIG="$kube_config"
           kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
-          if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
-            kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-          else
-            kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
-          fi
-          if ! kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=240s; then
-            kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
-            exit 1
-          fi
-          POD=$(kubectl -n ${{ inputs.namespace }} get pod -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
-          kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
-          PF_PID=$!
-          sleep 2
-          if ! curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"; then
-            kill "$PF_PID" 2>/dev/null || true
-            kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
-            exit 1
-          fi
-          kill "$PF_PID" 2>/dev/null || true
+          kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
+          kubectl argo rollouts set image ${{ inputs.deploy_name }} \
+            ${{ inputs.container_name }}="$IMAGE" \
+            -n ${{ inputs.namespace }}
+          kubectl argo rollouts status ${{ inputs.deploy_name }} \
+            -n ${{ inputs.namespace }} --timeout=15m

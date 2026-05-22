@@ -1,0 +1,53 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: backend
+  namespace: app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/tbernacchi/k8s-devsecops-pipeline-backend:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /backend/healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /backend/healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+  strategy:
+    canary:
+      canaryService: backend-canary
+      stableService: backend-stable
+      trafficRouting:
+        plugins:
+          argoproj-labs/traefik:
+            service: backend-stable
+            weightedTraefikServiceName: backend-wtrs
+      steps:
+        - setWeight: 20
+        - pause: {duration: 2m}
+        - analysis:
+            templates:
+              - templateName: error-rate
+        - setWeight: 50
+        - pause: {duration: 2m}
+        - analysis:
+            templates:
+              - templateName: error-rate
+        - setWeight: 100

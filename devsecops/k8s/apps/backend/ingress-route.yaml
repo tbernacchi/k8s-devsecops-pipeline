@@ -1,0 +1,14 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: backend
+  namespace: app
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/backend`)
+      kind: Rule
+      services:
+        - name: backend-wtrs
+          kind: TraefikService

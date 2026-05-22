@@ -1,0 +1,14 @@
+apiVersion: traefik.io/v1alpha1
+kind: TraefikService
+metadata:
+  name: backend-wtrs
+  namespace: app
+spec:
+  weighted:
+    services:
+      - name: backend-stable
+        port: 8080
+        weight: 100
+      - name: backend-canary
+        port: 8080
+        weight: 0
