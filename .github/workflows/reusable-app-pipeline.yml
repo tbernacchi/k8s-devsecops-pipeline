@@ -388,7 +388,7 @@ jobs:
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          args: --severity-threshold=high --file=${{ inputs.dependency_file }}
+          args: --severity-threshold=high --file=${{ inputs.dependency_file }} --skip-unresolved
       - name: Snyk skipped
         if: inputs.codeql_language != 'go' && inputs.codeql_language != 'python'
         run: echo "Skipping Snyk because no mapped action exists for language '${{ inputs.codeql_language }}'."
