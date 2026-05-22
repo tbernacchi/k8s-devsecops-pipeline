@@ -1,4 +1,4 @@
-FROM python:3.7-slim
+FROM python:3.11-slim
 
 RUN mkdir -p /app && apt-get update -y && apt-get install curl vim -y
 WORKDIR /app/
