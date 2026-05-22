@@ -6,24 +6,61 @@ Practice repository for **System Design**, **Software Architecture**, and **DevS
 
 The main focus of this repo is a **production-grade DevSecOps pipeline** built with GitHub Actions, targeting a Python frontend and Go backend deployed on a self-hosted K3s cluster (Raspberry Pi 4, ARM64).
 
-### Pipeline overview (12 stages)
+### Pipelines
 
-| Stage | Name | Runner |
-|-------|------|--------|
-| 1 | Secret Detection (Gitleaks, TruffleHog, detect-secrets) | `ubuntu-latest` |
-| 2 | Unit Tests + SonarCloud Quality Gate | `ubuntu-latest` |
-| 3 | SAST — Semgrep + CodeQL | `ubuntu-latest` |
-| 4 | SCA — Trivy, OWASP Dependency Check, Snyk | `ubuntu-latest` |
-| 5 | Container + IaC Scanning — Trivy image, Checkov, tfsec, Kyverno | `ubuntu-latest` |
-| 6 | Build + Sign + Attest — GHCR, Cosign (keyless), SLSA provenance | `ubuntu-latest` |
-| 7 | Deploy Dev | `k8s-system-design` |
-| 8 | Deploy Staging | `k8s-system-design` |
-| 9 | Smoke Tests | `k8s-system-design` |
-| 10 | DAST — OWASP ZAP | `k8s-system-design` |
-| 11 | Policy Gate — Cosign signature verification | `k8s-system-design` |
-| 12 | Prod Deploy — progressive rollout + auto rollback (manual approval) | `k8s-system-design` |
+Three independent pipelines, all using a shared reusable workflow:
 
-Stages 1–6 run on GitHub-hosted AMD64 runners. Stages 7–12 run on a self-hosted ARC runner inside the K3s cluster (ARM64) to reach the local network.
+| Pipeline | File | Trigger paths |
+|----------|------|---------------|
+| Frontend | `frontend.yml` | `devsecops/apps/frontend/**` |
+| Backend | `backend.yml` | `devsecops/apps/backend/**` |
+| Infra | `infra.yml` | `devsecops/infra/**`, `devsecops/k8s/**` |
+
+### App pipeline — 11 stages
+
+| Stage | Name | Tools | Runner |
+|-------|------|-------|--------|
+| 1 | Secret Detection | detect-secrets, Gitleaks, TruffleHog | `ubuntu-latest` |
+| 2 | Unit Tests + Code Quality | pytest / go test, SonarQube Quality Gate | `ubuntu-latest` |
+| 3 | SAST | Semgrep, CodeQL | `ubuntu-latest` |
+| 4 | SCA | Trivy (fs), OWASP Dependency Check, Snyk CLI | `ubuntu-latest` |
+| 5 | Build + Sign + Attest | Docker buildx → GHCR, Cosign (keyless), SLSA provenance | `ubuntu-latest` |
+| 6 | Deploy Dev *(optional)* | kubectl | `k8s-system-design` |
+| 7 | Deploy Staging *(optional)* | kubectl | `k8s-system-design` |
+| 8 | Smoke Tests | curl healthz | `k8s-system-design` |
+| 9 | DAST | OWASP ZAP | `k8s-system-design` |
+| 10 | Policy Gate | Cosign signature verify | `k8s-system-design` |
+| 11 | Prod Deploy | kubectl, progressive rollout + auto rollback (manual approval) | `k8s-system-design` |
+
+Stages 1–5 run on GitHub-hosted AMD64 runners. Stages 6–11 run on a self-hosted ARC runner inside the K3s cluster (ARM64).
+
+**Deploy flags** — Stages 6 and 7 are skipped by default. Pass `deploy_dev: true` or `deploy_staging: true` via `workflow_dispatch` inputs or in the caller's `with:` block to enable. Stages 8–11 always run on `main`.
+
+### Infra pipeline — 2 stages
+
+| Stage | Name | Tools |
+|-------|------|-------|
+| 1 | Secret Detection | detect-secrets, Gitleaks, TruffleHog |
+| 2 | IaC Scanning | Checkov, tfsec, Conftest OPA, Kyverno |
+
+### Container registry
+
+Images pushed to GitHub Container Registry (GHCR):
+```
+ghcr.io/tbernacchi/k8s-devsecops-pipeline-frontend:<git-sha>
+ghcr.io/tbernacchi/k8s-devsecops-pipeline-backend:<git-sha>
+```
+
+### Slack notifications
+
+Every security tool failure posts to the `k8s-devsecops-pipe` Slack channel with:
+- Which stage and which tool failed
+- Last 25 lines of the tool's output (ANSI stripped)
+- Direct link to the GitHub Actions run
+
+Each stage posts to the same channel using Block Kit format with explicit mrkdwn rendering.
+
+Stages 1–5 (app pipeline) and Stages 1–2 (infra pipeline) all have per-tool notifications.
 
 ### Stack
 
@@ -58,12 +95,14 @@ Secrets shared across all pipeline runs. Not tied to any specific environment.
 
 | Secret | Value | Why |
 |--------|-------|-----|
-| `SONAR_TOKEN` | Token from SonarCloud | Authenticates the SonarCloud scan in stage 2 |
-| `SONAR_HOST_URL` | `https://sonarcloud.io` | Tells the scanner where to send results |
-| `SNYK_TOKEN` | Token from Snyk | Authenticates Snyk dependency scan in stage 4 |
-| `DEV_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to dev cluster in stage 7 |
-| `STAGING_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to staging cluster in stage 8 |
-| `STAGING_BASE_URL` | `https://traefik.mykubernetes.com` | Base URL used by smoke tests (stage 9) and DAST (stage 10) |
+| `SONAR_TOKEN` | Token from SonarCloud | Authenticates SonarQube scan in stage 2 |
+| `SONAR_HOST_URL` | `https://sonarcloud.io` | Scanner endpoint |
+| `SNYK_TOKEN` | Token from Snyk | Authenticates Snyk CLI in stage 4 |
+| `NVD_API_KEY` | Key from nvd.nist.gov | Speeds up OWASP DC NVD database updates (optional but strongly recommended) |
+| `SLACK_WEBHOOK_K8S_DEVSECOPS` | Incoming Webhook URL from Slack | Posts failure notifications to `k8s-devsecops-pipe` channel |
+| `DEV_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to dev cluster in stage 6 |
+| `STAGING_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to staging cluster in stage 7 |
+| `STAGING_BASE_URL` | `https://traefik.mykubernetes.com` | Base URL for smoke tests (stage 8) and DAST (stage 9) |
 
 **Getting SONAR_TOKEN:**
 1. Log in at [sonarcloud.io](https://sonarcloud.io) with your GitHub account
@@ -73,6 +112,18 @@ Secrets shared across all pipeline runs. Not tied to any specific environment.
 **Getting SNYK_TOKEN:**
 1. Log in at [app.snyk.io](https://app.snyk.io) with your GitHub account
 2. Account Settings → Auth Token → click to show → copy
+
+**Getting NVD_API_KEY:**
+1. Go to [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key)
+2. Enter your email — key is delivered immediately
+3. Without this key, OWASP DC downloads 350k+ CVE records without rate limiting (very slow)
+
+**Getting SLACK_WEBHOOK_K8S_DEVSECOPS:**
+1. In Slack: Apps → search "Incoming WebHooks" → Add to Slack
+2. Choose channel `k8s-devsecops-pipe` (create it first if needed)
+3. Click **Add Incoming WebHooks integration**
+4. Copy the Webhook URL (`https://hooks.slack.com/services/...`)
+5. No OAuth tokens or Client ID/Secret needed — the URL itself is the credential
 
 **Generating kubeconfig in base64:**
 ```bash
@@ -271,6 +322,31 @@ GitHub sends an email when the pipeline reaches prod deploy.
 ---
 
 ### Troubleshooting
+
+#### Stage 4 — OWASP DC NVD cache
+
+OWASP Dependency Check downloads the full NVD CVE database (~352k records) on first run. Without caching this takes 15–30 minutes and may hit rate limits.
+
+The pipeline caches `~/.owasp-dc` using `actions/cache@v4` with a daily key:
+```
+owasp-dc-Linux-2026-05-21   ← restored same day
+owasp-dc-Linux-             ← fallback: most recent day
+```
+
+The cache directory is mounted into the OWASP DC container:
+```bash
+-v "$HOME/.owasp-dc:/usr/share/dependency-check/data"
+```
+
+`chmod 777 ~/.owasp-dc` is required — the container runs as `dependencycheck` (UID 1000), not the runner user.
+
+With `NVD_API_KEY` set, delta updates take seconds. Without it, even cached runs may re-download large batches.
+
+#### Stage 4 — Snyk Python environment
+
+`snyk/actions/python@master` is a Docker action — it runs in an isolated container and does not inherit packages installed by prior `pip install` steps on the runner.
+
+Solution: Snyk CLI is installed via `npm install -g snyk` and runs directly on the Ubuntu runner, where pip packages from the `Install deps` step are available. `--skip-unresolved` is passed to handle any transitive packages that can't be resolved without a full virtual environment.
 
 #### Stage 1 — detect-secrets false positives
 
