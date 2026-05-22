@@ -347,10 +347,13 @@ jobs:
       - name: OWASP Dependency Check
         id: owasp
         continue-on-error: true
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           mkdir -p reports ~/.owasp-dc
+          chmod 777 ~/.owasp-dc
           NVD_FLAG=""
-          [ -n "${{ secrets.NVD_API_KEY }}" ] && NVD_FLAG="--nvdApiKey ${{ secrets.NVD_API_KEY }}"
+          [ -n "$NVD_API_KEY" ] && NVD_FLAG="--nvdApiKey $NVD_API_KEY"
           docker run --rm \
             -v "$PWD/${{ inputs.app_path }}:/src" \
             -v "$PWD/reports:/report" \
