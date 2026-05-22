@@ -7,4 +7,5 @@
 *.tfstate.*
 
 # pycache 
-./devsecops/apps/frontend/src/frontend/__pycache__/* 
+devsecops/apps/frontend/src/frontend/__pycache__/* 
+
