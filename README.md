@@ -16,7 +16,7 @@ Three independent pipelines, all using a shared reusable workflow:
 | Backend | `backend.yml` | `devsecops/apps/backend/**` |
 | Infra | `infra.yml` | `devsecops/infra/**`, `devsecops/k8s/**` |
 
-### App pipeline — 11 stages
+### App pipeline — 10 stages
 
 | Stage | Name | Tools | Runner |
 |-------|------|-------|--------|
@@ -25,18 +25,36 @@ Three independent pipelines, all using a shared reusable workflow:
 | 3 | SAST | Semgrep, CodeQL | `ubuntu-latest` |
 | 4 | SCA | Trivy (fs), OWASP Dependency Check, Snyk CLI | `ubuntu-latest` |
 | 5 | Build + Sign + Attest | Docker buildx → GHCR, Cosign (keyless), SLSA provenance | `ubuntu-latest` |
-| 6 | Deploy Dev *(optional)* | kubectl | `k8s-system-design` |
-| 7 | Deploy Staging *(optional)* | kubectl | `k8s-system-design` |
-| 8 | Smoke Tests | curl healthz | `k8s-system-design` |
-| 9 | DAST | OWASP ZAP | `k8s-system-design` |
-| 10 | Policy Gate | Cosign signature verify | `k8s-system-design` |
-| 11 | Prod Deploy | kubectl, progressive rollout + auto rollback (manual approval) | `k8s-system-design` |
+| 6 | Deploy Dev *(optional)* | kubectl + smoke test (port-forward → healthz) | `k8s-system-design` |
+| 7 | Deploy Staging *(optional)* | kubectl + smoke test (port-forward → healthz) | `k8s-system-design` |
+| 8 | DAST | OWASP ZAP | `k8s-system-design` |
+| 9 | Policy Gate | Cosign signature verify | `k8s-system-design` |
+| 10 | Prod Deploy | Argo Rollouts canary (20%→50%→100%), Prometheus error-rate analysis, auto rollback (manual approval) | `k8s-system-design` |
 
-Stages 1–5 run on GitHub-hosted AMD64 runners. Stages 6–11 run on a self-hosted ARC runner inside the K3s cluster (ARM64).
+Stages 1–5 run on GitHub-hosted AMD64 runners. Stages 6–10 run on a self-hosted ARC runner inside the K3s cluster (ARM64).
 
-**Deploy flags** — Stages 6 and 7 are skipped by default. Pass `deploy_dev: true` or `deploy_staging: true` via `workflow_dispatch` inputs or in the caller's `with:` block to enable. Stages 8–11 always run on `main`.
+**Deploy flags** — Stages 6 and 7 are skipped by default. Pass `deploy_dev: true` or `deploy_staging: true` via `workflow_dispatch` inputs or in the caller's `with:` block to enable. Stages 8–10 always run on `main`.
 
-**Single-stage dispatch** — Pass `run_only_stage: N` (1–11) to run only that stage. Empty (default) = full pipeline. Useful to re-run a failing stage without repeating the entire pipeline from scratch.
+**Single-stage dispatch** — Pass `run_only_stage: N` (1–10) to run only that stage. Empty (default) = full pipeline. Useful to re-run a failing stage without repeating the entire pipeline from scratch.
+
+### Canary deployment (Stage 10)
+
+Prod deploy uses **Argo Rollouts** with Traefik weighted traffic splitting. No app code changes needed — Prometheus scrapes `traefik_service_requests_total` metrics at the ingress level.
+
+```
+new image pushed
+  → 20% canary traffic
+  → AnalysisRun: error rate < 5% over 3×60s ? → promote to 50%
+  → AnalysisRun: error rate < 5% over 3×60s ? → promote to 100%
+  → any check fails → Argo auto-rollback, pipeline exits non-zero
+```
+
+Manifests: `devsecops/k8s/apps/{backend,frontend}/`
+- `rollout.yaml` — Rollout CRD (replaces Deployment)
+- `services.yaml` — stable + canary ClusterIP services
+- `traefik-service.yaml` — TraefikService weighted split
+- `ingress-route.yaml` — IngressRoute → TraefikService
+- `analysis-template.yaml` — Prometheus error-rate query
 
 ### Infra pipeline — 2 stages
 
@@ -249,7 +267,7 @@ but is only allowed 'security-events: none'.
 
 ### 8. Cluster — ARC self-hosted runner
 
-Stages 7–12 run on `k8s-system-design`, an Actions Runner Controller (ARC) scale set installed in the K3s cluster. These stages need direct access to the cluster network (`192.168.1.x`) and the Traefik ingress (`traefik.mykubernetes.com`) — reachable only from within the cluster.
+Stages 6–10 run on `k8s-system-design`, an Actions Runner Controller (ARC) scale set installed in the K3s cluster. These stages need direct access to the cluster network (`192.168.1.x`) and the Traefik ingress (`traefik.mykubernetes.com`) — reachable only from within the cluster.
 
 See [gh-runner/README.md](gh-runner/README.md) for full install instructions.
 
@@ -262,7 +280,55 @@ kubectl get autoscalingrunnerset -n arc-runners
 
 ---
 
-### 9. Cluster — GHCR image pull
+### 9. Cluster — Traefik metrics + Prometheus + Argo Rollouts
+
+Required for Stage 10 canary deploy. One-time setup.
+
+**Step 1 — Enable Traefik Prometheus metrics:**
+```bash
+kubectl apply -f devsecops/k8s/traefik/helmchartconfig.yaml
+# Traefik restarts and exposes /metrics on :9100
+```
+
+**Step 2 — Deploy Prometheus:**
+```bash
+kubectl apply -f devsecops/k8s/prometheus/
+# Scrapes Traefik pods via Kubernetes SD
+# Accessible at prometheus.monitoring.svc.cluster.local:9090
+```
+
+**Step 3 — Install Argo Rollouts:**
+```bash
+# Check if already installed
+kubectl get namespace argo-rollouts 2>/dev/null && kubectl get deployment argo-rollouts -n argo-rollouts 2>/dev/null
+
+# If not installed:
+kubectl create namespace argo-rollouts
+kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+
+# Apply Traefik plugin config (ARM64 binary)
+kubectl apply -f devsecops/k8s/argo-rollouts/traefik-plugin-config.yaml
+```
+
+**Step 4 — Apply app manifests (first deploy only):**
+```bash
+kubectl create namespace app 2>/dev/null || true
+kubectl apply -f devsecops/k8s/apps/backend/
+kubectl apply -f devsecops/k8s/apps/frontend/
+```
+
+**Verify:**
+```bash
+kubectl get rollout -n app
+kubectl get analysistemp -n app
+kubectl get traefikservice -n app
+kubectl get pods -n monitoring    # prometheus running
+kubectl get pods -n argo-rollouts # controller running
+```
+
+---
+
+### 10. Cluster — GHCR image pull
 
 After stage 6 pushes the image to `ghcr.io`, the cluster needs credentials to pull it during deploy.
 
@@ -318,8 +384,8 @@ Stages that run cleanly in isolation:
 |--------|-------------------|------|
 | 1–4 | ✅ | code analysis, no external deps |
 | 5 | ✅ | builds from scratch |
-| 8, 9 | ✅ | hit staging URL, no artifact needed |
-| 6, 7, 10, 11 | ⚠️ | require `image_ref`/`digest` output from Stage 5 — run stage 5 first |
+| 8 | ✅ | DAST hits staging URL, needs staging deployed |
+| 6, 7, 9, 10 | ⚠️ | require `image_ref`/`digest` output from Stage 5 — run stage 5 first |
 
 **Automatic trigger on push** — paths configured in each workflow:
 - `devsecops/apps/frontend/**` → triggers `frontend.yml`

@@ -50,7 +50,7 @@ See [root README](../README.md) for full pipeline documentation, setup guide, an
 
 ## Pipeline overview
 
-11-stage DevSecOps pipeline via GitHub Actions reusable workflow (`reusable-app-pipeline.yml`), shared between frontend (Python) and backend (Go).
+10-stage DevSecOps pipeline via GitHub Actions reusable workflow (`reusable-app-pipeline.yml`), shared between frontend (Python) and backend (Go).
 
 | Stage | Name | Runner |
 |-------|------|--------|
@@ -59,12 +59,11 @@ See [root README](../README.md) for full pipeline documentation, setup guide, an
 | 3 | SAST (Semgrep, CodeQL) | `ubuntu-latest` |
 | 4 | SCA (Trivy, OWASP DC, Snyk CLI) | `ubuntu-latest` |
 | 5 | Build + Sign + Attest (Docker → GHCR, Cosign, SLSA) | `ubuntu-latest` |
-| 6 | Deploy Dev *(optional)* | `k8s-system-design` |
-| 7 | Deploy Staging *(optional)* | `k8s-system-design` |
-| 8 | Smoke Tests | `k8s-system-design` |
-| 9 | DAST (OWASP ZAP) | `k8s-system-design` |
-| 10 | Policy Gate (Cosign verify) | `k8s-system-design` |
-| 11 | Prod Deploy (progressive rollout + auto rollback, manual approval) | `k8s-system-design` |
+| 6 | Deploy Dev *(optional)* + smoke test | `k8s-system-design` |
+| 7 | Deploy Staging *(optional)* + smoke test | `k8s-system-design` |
+| 8 | DAST (OWASP ZAP) | `k8s-system-design` |
+| 9 | Policy Gate (Cosign verify) | `k8s-system-design` |
+| 10 | Prod Deploy — Argo Rollouts canary 20%→50%→100%, Prometheus error-rate analysis, auto rollback (manual approval) | `k8s-system-design` |
 
 ## Triggering
 
