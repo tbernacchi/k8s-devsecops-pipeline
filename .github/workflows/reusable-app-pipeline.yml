@@ -351,7 +351,7 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           mkdir -p reports ~/.owasp-dc
-          chmod 777 ~/.owasp-dc
+          chmod 777 ~/.owasp-dc reports
           NVD_FLAG=""
           [ -n "$NVD_API_KEY" ] && NVD_FLAG="--nvdApiKey $NVD_API_KEY"
           docker run --rm \
@@ -376,6 +376,10 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
           args: --severity-threshold=high --file=${{ inputs.dependency_file }}
+      - name: Install deps for Snyk (Python)
+        if: inputs.codeql_language == 'python'
+        run: |
+          [ -f "${{ inputs.dependency_file }}" ] && pip install -r "${{ inputs.dependency_file }}" --quiet
       - name: Snyk (Python)
         id: snyk_python
         if: inputs.codeql_language == 'python'
