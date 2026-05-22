@@ -36,9 +36,9 @@ spec:
       stableService: frontend-stable
       trafficRouting:
         plugins:
-          argoproj-labs/traefik:
-            service: frontend-stable
-            weightedTraefikServiceName: frontend-wtrs
+          argoproj-labs/gatewayAPI:
+            httpRoute: frontend-httproute
+            namespace: app
       steps:
         - setWeight: 20
         - pause: {duration: 2m}

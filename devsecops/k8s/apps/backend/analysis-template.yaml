@@ -11,7 +11,7 @@ spec:
       failureLimit: 1
       provider:
         prometheus:
-          address: http://prometheus.monitoring.svc.cluster.local:9090
+          address: http://prometheus-stack-kube-prom-prometheus.monitoring.svc.cluster.local:9090/prometheus
           query: |
             (
               sum(rate(traefik_service_requests_total{service=~"app-backend.*",code=~"5.."}[2m])) or vector(0)

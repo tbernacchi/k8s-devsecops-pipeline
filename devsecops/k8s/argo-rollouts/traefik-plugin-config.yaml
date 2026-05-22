@@ -5,5 +5,5 @@ metadata:
   namespace: argo-rollouts
 data:
   trafficRouterPlugins: |-
-    - name: "argoproj-labs/traefik"
-      location: "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-traefik/releases/download/v0.4.0/rollouts-plugin-trafficrouter-traefik-linux-arm64"
+    - name: "argoproj-labs/gatewayAPI"
+      location: "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/v0.13.0/gatewayapi-plugin-linux-arm64"

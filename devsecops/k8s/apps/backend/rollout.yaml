@@ -36,9 +36,9 @@ spec:
       stableService: backend-stable
       trafficRouting:
         plugins:
-          argoproj-labs/traefik:
-            service: backend-stable
-            weightedTraefikServiceName: backend-wtrs
+          argoproj-labs/gatewayAPI:
+            httpRoute: backend-httproute
+            namespace: app
       steps:
         - setWeight: 20
         - pause: {duration: 2m}
