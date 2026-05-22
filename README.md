@@ -36,6 +36,8 @@ Stages 1–5 run on GitHub-hosted AMD64 runners. Stages 6–11 run on a self-hos
 
 **Deploy flags** — Stages 6 and 7 are skipped by default. Pass `deploy_dev: true` or `deploy_staging: true` via `workflow_dispatch` inputs or in the caller's `with:` block to enable. Stages 8–11 always run on `main`.
 
+**Single-stage dispatch** — Pass `run_only_stage: N` (1–11) to run only that stage. Empty (default) = full pipeline. Useful to re-run a failing stage without repeating the entire pipeline from scratch.
+
 ### Infra pipeline — 2 stages
 
 | Stage | Name | Tools |
@@ -302,6 +304,23 @@ gh workflow run frontend.yml   # frontend only
 gh workflow run backend.yml    # backend only
 ```
 
+**Run a single stage** — useful when a specific stage fails and you don't want to repeat the full pipeline:
+```bash
+gh workflow run backend.yml --ref main -f run_only_stage=4   # SCA only
+gh workflow run frontend.yml --ref main -f run_only_stage=3  # SAST only
+```
+
+Or via the UI: **Actions → Backend/Frontend Secure Pipeline → Run workflow → fill `run_only_stage`**.
+
+Stages that run cleanly in isolation:
+
+| Stages | Works standalone? | Note |
+|--------|-------------------|------|
+| 1–4 | ✅ | code analysis, no external deps |
+| 5 | ✅ | builds from scratch |
+| 8, 9 | ✅ | hit staging URL, no artifact needed |
+| 6, 7, 10, 11 | ⚠️ | require `image_ref`/`digest` output from Stage 5 — run stage 5 first |
+
 **Automatic trigger on push** — paths configured in each workflow:
 - `devsecops/apps/frontend/**` → triggers `frontend.yml`
 - `devsecops/apps/backend/**` → triggers `backend.yml`
@@ -315,7 +334,7 @@ gh run view <run-id> --log            # full log
 gh run view <run-id> --log-failed     # failed steps only
 ```
 
-**Stage 12 — manual approval required.**
+**Stage 11 — manual approval required.**
 GitHub sends an email when the pipeline reaches prod deploy.
 **Actions → the run → Review deployments → Approve and deploy**
 
