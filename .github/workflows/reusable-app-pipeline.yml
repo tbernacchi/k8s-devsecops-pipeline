@@ -542,6 +542,12 @@ jobs:
             kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
           fi
           kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
+          POD=$(kubectl -n ${{ inputs.namespace }} get pod -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
+          PF_PID=$!
+          sleep 2
+          curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"
+          kill "$PF_PID" 2>/dev/null || true
 
   # ──────────────────────────────────────────────
   # Stage 7 – Deploy Staging
@@ -571,28 +577,20 @@ jobs:
             kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
           fi
           kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
+          POD=$(kubectl -n ${{ inputs.namespace }} get pod -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
+          PF_PID=$!
+          sleep 2
+          curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"
+          kill "$PF_PID" 2>/dev/null || true
 
   # ──────────────────────────────────────────────
-  # Stage 8 – Smoke Tests
-  # ──────────────────────────────────────────────
-  stage7_integration_e2e:
-    name: "Stage 8 - Smoke Tests"
-    needs: stage6_build_sign_attest
-    if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage6_build_sign_attest.result == 'success'))
-    runs-on: k8s-system-design
-    steps:
-      - name: Smoke tests on staging
-        run: |
-          test -n "${{ secrets.STAGING_BASE_URL }}"
-          curl -fsS "${{ secrets.STAGING_BASE_URL }}${{ inputs.route_prefix }}/healthz"
-
-  # ──────────────────────────────────────────────
-  # Stage 9 – DAST
+  # Stage 8 – DAST
   # ──────────────────────────────────────────────
   stage8_dast:
-    name: "Stage 9 - DAST"
-    needs: stage7_integration_e2e
-    if: always() && (inputs.run_only_stage == '9' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage7_integration_e2e.result == 'success'))
+    name: "Stage 8 - DAST"
+    needs: [deploy_staging, stage6_build_sign_attest]
+    if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.deploy_staging.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: zaproxy/action-baseline@v0.14.0
@@ -601,12 +599,12 @@ jobs:
           fail_action: true
 
   # ──────────────────────────────────────────────
-  # Stage 10 – Policy Gate (verifica assinatura real)
+  # Stage 9 – Policy Gate (verifica assinatura real)
   # ──────────────────────────────────────────────
   policy_gate:
-    name: "Stage 10 - Policy Gate"
+    name: "Stage 9 - Policy Gate"
     needs: [stage8_dast, stage6_build_sign_attest]
-    if: always() && (inputs.run_only_stage == '10' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage8_dast.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
+    if: always() && (inputs.run_only_stage == '9' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage8_dast.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: sigstore/cosign-installer@v3
@@ -620,12 +618,12 @@ jobs:
             "$IMAGE"
 
   # ──────────────────────────────────────────────
-  # Stage 11 – Prod Deploy (manual approval required)
+  # Stage 10 – Prod Deploy (manual approval required)
   # ──────────────────────────────────────────────
   deploy_prod:
-    name: "Stage 11 - Prod Approval and Progressive Deploy"
+    name: "Stage 10 - Prod Approval and Progressive Deploy"
     needs: [policy_gate, stage6_build_sign_attest]
-    if: always() && (inputs.run_only_stage == '11' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.policy_gate.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
+    if: always() && (inputs.run_only_stage == '10' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.policy_gate.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     environment: production
     steps:
@@ -633,7 +631,6 @@ jobs:
       - name: Progressive rollout with auto rollback
         env:
           KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
-          PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
           IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
         run: |
           test -n "$KCFG"
@@ -652,9 +649,13 @@ jobs:
             kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
             exit 1
           fi
-          if [ -n "$PROD_BASE_URL" ]; then
-            if ! curl -fsS "${PROD_BASE_URL}${{ inputs.route_prefix }}/healthz"; then
-              kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
-              exit 1
-            fi
+          POD=$(kubectl -n ${{ inputs.namespace }} get pod -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
+          PF_PID=$!
+          sleep 2
+          if ! curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"; then
+            kill "$PF_PID" 2>/dev/null || true
+            kubectl -n ${{ inputs.namespace }} rollout undo deployment/${{ inputs.deploy_name }}
+            exit 1
           fi
+          kill "$PF_PID" 2>/dev/null || true
