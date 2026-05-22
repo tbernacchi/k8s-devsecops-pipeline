@@ -39,6 +39,10 @@ on:
         required: false
         type: boolean
         default: false
+      run_only_stage:
+        required: false
+        type: string
+        default: ""
     secrets:
       SONAR_TOKEN:
         required: false
@@ -67,6 +71,7 @@ jobs:
   # ──────────────────────────────────────────────
   stage1_secret_detection:
     name: "Stage 1 - Secret Detection"
+    if: inputs.run_only_stage == '' || inputs.run_only_stage == '1'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -142,6 +147,7 @@ jobs:
   stage2_unit_tests_quality:
     name: "Stage 2 - Unit Tests and Code Quality"
     needs: stage1_secret_detection
+    if: always() && (inputs.run_only_stage == '2' || (inputs.run_only_stage == '' && needs.stage1_secret_detection.result == 'success'))
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -254,6 +260,7 @@ jobs:
   stage3_sast:
     name: "Stage 3 - SAST"
     needs: stage2_unit_tests_quality
+    if: always() && (inputs.run_only_stage == '3' || (inputs.run_only_stage == '' && needs.stage2_unit_tests_quality.result == 'success'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -323,6 +330,7 @@ jobs:
   stage4_sca:
     name: "Stage 4 - SCA"
     needs: stage2_unit_tests_quality
+    if: always() && (inputs.run_only_stage == '4' || (inputs.run_only_stage == '' && needs.stage2_unit_tests_quality.result == 'success'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -430,6 +438,7 @@ jobs:
   stage6_build_sign_attest:
     name: "Stage 5 - Build and Artifact Signing"
     needs: [stage3_sast, stage4_sca]
+    if: always() && (inputs.run_only_stage == '5' || (inputs.run_only_stage == '' && needs.stage3_sast.result == 'success' && needs.stage4_sca.result == 'success'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -511,7 +520,7 @@ jobs:
   deploy_dev:
     name: "Stage 6 - Dev Auto Deploy"
     needs: stage6_build_sign_attest
-    if: github.ref == 'refs/heads/main' && inputs.deploy_dev
+    if: always() && (inputs.run_only_stage == '6' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && inputs.deploy_dev && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: azure/setup-kubectl@v4
@@ -540,7 +549,7 @@ jobs:
   deploy_staging:
     name: "Stage 7 - Staging Auto Deploy"
     needs: [deploy_dev, stage6_build_sign_attest]
-    if: github.ref == 'refs/heads/main' && inputs.deploy_staging
+    if: always() && (inputs.run_only_stage == '7' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && inputs.deploy_staging && needs.deploy_dev.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: azure/setup-kubectl@v4
@@ -569,7 +578,7 @@ jobs:
   stage7_integration_e2e:
     name: "Stage 8 - Smoke Tests"
     needs: stage6_build_sign_attest
-    if: github.ref == 'refs/heads/main'
+    if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - name: Smoke tests on staging
@@ -583,7 +592,7 @@ jobs:
   stage8_dast:
     name: "Stage 9 - DAST"
     needs: stage7_integration_e2e
-    if: github.ref == 'refs/heads/main'
+    if: always() && (inputs.run_only_stage == '9' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage7_integration_e2e.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: zaproxy/action-baseline@v0.14.0
@@ -597,7 +606,7 @@ jobs:
   policy_gate:
     name: "Stage 10 - Policy Gate"
     needs: [stage8_dast, stage6_build_sign_attest]
-    if: github.ref == 'refs/heads/main'
+    if: always() && (inputs.run_only_stage == '10' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage8_dast.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: sigstore/cosign-installer@v3
@@ -616,7 +625,7 @@ jobs:
   deploy_prod:
     name: "Stage 11 - Prod Approval and Progressive Deploy"
     needs: [policy_gate, stage6_build_sign_attest]
-    if: github.ref == 'refs/heads/main'
+    if: always() && (inputs.run_only_stage == '11' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.policy_gate.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     environment: production
     steps:
