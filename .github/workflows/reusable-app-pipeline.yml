@@ -622,11 +622,18 @@ jobs:
 
           if [[ "$REF" == "refs/heads/main" ]]; then
             kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
-            kubectl argo rollouts set image ${{ inputs.deploy_name }} \
-              ${{ inputs.container_name }}="$IMAGE" \
-              -n ${{ inputs.namespace }}
-            kubectl argo rollouts status ${{ inputs.deploy_name }} \
-              -n ${{ inputs.namespace }} --timeout=15m
+            kubectl patch rollout ${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} \
+              --type='json' \
+              -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMAGE}\"}]"
+            kubectl wait rollout/${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} \
+              --for=condition=Progressing=True \
+              --timeout=15m
+            kubectl wait rollout/${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} \
+              --for=condition=Healthy=True \
+              --timeout=15m
           else
             if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
               kubectl -n ${{ inputs.namespace }} set image \
