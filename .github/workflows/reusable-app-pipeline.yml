@@ -471,7 +471,6 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image_ref }}:${{ steps.version.outputs.VERSION }}
             ${{ steps.meta.outputs.image_ref }}:${{ github.sha }}
-            ${{ steps.meta.outputs.image_ref }}:latest
           provenance: true
           sbom: true
       - uses: sigstore/cosign-installer@v3
