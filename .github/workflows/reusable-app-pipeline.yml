@@ -600,36 +600,17 @@ jobs:
           kubectl get namespace ${{ inputs.namespace }} 2>/dev/null \
             || kubectl create namespace ${{ inputs.namespace }}
 
-          if [[ "$REF" == "refs/heads/main" ]]; then
-            sed -i "s|:PIPELINE_IMAGE|:${IMAGE##*:}|g" \
-              devsecops/k8s/apps/${{ inputs.app_name }}/rollout.yaml
-            kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
-            kubectl wait rollout/${{ inputs.deploy_name }} \
-              -n ${{ inputs.namespace }} \
-              --for=condition=Progressing=True \
-              --timeout=15m
-            kubectl wait rollout/${{ inputs.deploy_name }} \
-              -n ${{ inputs.namespace }} \
-              --for=condition=Healthy=True \
-              --timeout=15m
-          else
-            if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
-              kubectl -n ${{ inputs.namespace }} set image \
-                deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-            else
-              kubectl create deployment ${{ inputs.deploy_name }} \
-                --image="$IMAGE" -n ${{ inputs.namespace }}
-            fi
-            kubectl -n ${{ inputs.namespace }} rollout status \
-              deployment/${{ inputs.deploy_name }} --timeout=180s
-            POD=$(kubectl -n ${{ inputs.namespace }} get pod \
-              -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
-            kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
-            PF_PID=$!
-            sleep 2
-            curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"
-            kill "$PF_PID" 2>/dev/null || true
-          fi
+          sed -i "s|:PIPELINE_IMAGE|:${IMAGE##*:}|g" \
+            devsecops/k8s/apps/${{ inputs.app_name }}/rollout.yaml
+          kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
+          kubectl wait rollout/${{ inputs.deploy_name }} \
+            -n ${{ inputs.namespace }} \
+            --for=condition=Progressing=True \
+            --timeout=15m
+          kubectl wait rollout/${{ inputs.deploy_name }} \
+            -n ${{ inputs.namespace }} \
+            --for=condition=Healthy=True \
+            --timeout=15m
 
   # ──────────────────────────────────────────────
   # Stage 8 – DAST (branch determina URL)
