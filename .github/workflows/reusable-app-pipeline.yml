@@ -540,7 +540,6 @@ jobs:
       - name: Deploy summary
         env:
           IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}:${{ needs.stage6_build_sign_attest.outputs.version }}
-          KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ## Deploy Summary — ${{ inputs.app_name }} \`${{ github.ref_name }}\`
@@ -559,26 +558,6 @@ jobs:
           $(git log --oneline -5)
           \`\`\`
           EOF
-
-          if [ -n "$KCFG" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            kube_config=$(mktemp)
-            trap "rm -f '$kube_config'" EXIT
-            echo "$KCFG" | base64 -d > "$kube_config"
-            chmod 600 "$kube_config"
-            export KUBECONFIG="$kube_config"
-            DIFF=$(kubectl diff -f devsecops/k8s/apps/${{ inputs.app_name }}/ 2>&1 || true)
-            cat >> "$GITHUB_STEP_SUMMARY" <<EODIFF
-
-          <details>
-          <summary>📋 kubectl diff (cluster vs manifests)</summary>
-
-          \`\`\`diff
-          ${DIFF:-no changes}
-          \`\`\`
-
-          </details>
-          EODIFF
-          fi
 
   # ──────────────────────────────────────────────
   # Stage 7 – Deploy (branch determina env)
@@ -622,11 +601,18 @@ jobs:
 
           if [[ "$REF" == "refs/heads/main" ]]; then
             kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
-            kubectl argo rollouts set image ${{ inputs.deploy_name }} \
-              ${{ inputs.container_name }}="$IMAGE" \
-              -n ${{ inputs.namespace }}
-            kubectl argo rollouts status ${{ inputs.deploy_name }} \
-              -n ${{ inputs.namespace }} --timeout=15m
+            kubectl patch rollout ${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} \
+              --type='json' \
+              -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMAGE}\"}]"
+            kubectl wait rollout/${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} \
+              --for=condition=Progressing=True \
+              --timeout=15m
+            kubectl wait rollout/${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} \
+              --for=condition=Healthy=True \
+              --timeout=15m
           else
             if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
               kubectl -n ${{ inputs.namespace }} set image \
