@@ -441,6 +441,7 @@ jobs:
       attestations: write
     outputs:
       image_ref: ${{ steps.meta.outputs.image_ref }}
+      version: ${{ steps.version.outputs.VERSION }}
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
@@ -530,7 +531,7 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       - name: Verify cosign signature
         env:
-          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}:${{ needs.stage6_build_sign_attest.outputs.version }}
         run: |
           cosign verify \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/.github/workflows/" \
@@ -538,7 +539,7 @@ jobs:
             "$IMAGE"
       - name: Deploy summary
         env:
-          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}:${{ needs.stage6_build_sign_attest.outputs.version }}
           KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
@@ -592,7 +593,7 @@ jobs:
       DEV_KCFG: ${{ secrets.DEV_KUBECONFIG_B64 }}
       STAGING_KCFG: ${{ secrets.STAGING_KUBECONFIG_B64 }}
       PROD_KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
-      IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
+      IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}:${{ needs.stage6_build_sign_attest.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
