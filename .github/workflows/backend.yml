@@ -9,6 +9,7 @@ on:
         default: ""
   push:
     branches: [main, dev, development, stg, staging]
+    tags: ['v*']
     paths:
       - "devsecops/apps/backend/**"
       - ".github/workflows/backend.yml"

@@ -440,7 +440,7 @@ jobs:
       id-token: write
       attestations: write
     outputs:
-      image_ref: ${{ steps.meta.outputs.image_ref }}
+      image_ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
@@ -451,8 +451,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        run: |
-          echo "image_ref=ghcr.io/${{ github.repository }}-${{ inputs.app_name }}" >> "$GITHUB_OUTPUT"
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-${{ inputs.app_name }}
+          tags: |
+            type=sha,prefix=
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
       - id: build
         continue-on-error: true
         uses: docker/build-push-action@v6
@@ -460,9 +466,8 @@ jobs:
           context: ${{ inputs.app_path }}
           file: ${{ inputs.dockerfile_path }}
           push: true
-          tags: |
-            ${{ steps.meta.outputs.image_ref }}:${{ github.sha }}
-            ${{ steps.meta.outputs.image_ref }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           provenance: true
           sbom: true
       - uses: sigstore/cosign-installer@v3
