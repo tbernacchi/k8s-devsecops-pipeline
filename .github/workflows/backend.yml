@@ -38,6 +38,7 @@ jobs:
       dependency_file: devsecops/apps/backend/go.mod
       deploy_name: backend
       container_name: backend
+      namespace: app-backend
       route_prefix: /backend
       run_only_stage: ${{ inputs.run_only_stage }}
     secrets: inherit # pragma: allowlist secret

@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: backend
-  namespace: app
+  namespace: app-backend
 spec:
   replicas: 2
   selector:
@@ -38,7 +38,7 @@ spec:
         plugins:
           argoproj-labs/gatewayAPI:
             httpRoute: backend-httproute
-            namespace: app
+            namespace: app-backend
       steps:
         - setWeight: 20
         - pause: {duration: 2m}

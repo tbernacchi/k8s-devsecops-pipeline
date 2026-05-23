@@ -38,6 +38,7 @@ jobs:
       dependency_file: devsecops/apps/frontend/src/frontend/requirements.txt
       deploy_name: frontend
       container_name: frontend
+      namespace: app-frontend
       route_prefix: /frontend
       run_only_stage: ${{ inputs.run_only_stage }}
     secrets: inherit # pragma: allowlist secret

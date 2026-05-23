@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
   name: error-rate
-  namespace: app
+  namespace: app-frontend
 spec:
   metrics:
     - name: error-rate

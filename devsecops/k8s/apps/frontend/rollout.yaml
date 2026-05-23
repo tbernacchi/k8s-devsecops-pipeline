@@ -2,7 +2,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
   name: frontend
-  namespace: app
+  namespace: app-frontend
 spec:
   replicas: 2
   selector:
@@ -18,6 +18,11 @@ spec:
           image: ghcr.io/tbernacchi/k8s-devsecops-pipeline-frontend:PIPELINE_IMAGE
           ports:
             - containerPort: 8000
+          env:
+            - name: BACKEND_HOST
+              value: "backend-stable.app-backend.svc.cluster.local"
+            - name: BACKEND_PORT
+              value: "8080"
           readinessProbe:
             httpGet:
               path: /healthz
@@ -38,7 +43,7 @@ spec:
         plugins:
           argoproj-labs/gatewayAPI:
             httpRoute: frontend-httproute
-            namespace: app
+            namespace: app-frontend
       steps:
         - setWeight: 20
         - pause: {duration: 2m}

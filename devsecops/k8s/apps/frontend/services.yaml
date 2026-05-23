@@ -2,22 +2,22 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend-stable
-  namespace: app
+  namespace: app-frontend
 spec:
   selector:
     app: frontend
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 8000
+      targetPort: 8000
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend-canary
-  namespace: app
+  namespace: app-frontend
 spec:
   selector:
     app: frontend
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 8000
+      targetPort: 8000
