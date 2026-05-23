@@ -588,7 +588,6 @@ jobs:
     needs: [policy_gate, stage6_build_sign_attest]
     if: always() && (inputs.run_only_stage == '7' || (inputs.run_only_stage == '' && needs.policy_gate.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || (github.ref == 'refs/heads/stg' || github.ref == 'refs/heads/staging') && 'staging' || 'development' }}
     env:
       DEV_KCFG: ${{ secrets.DEV_KUBECONFIG_B64 }}
       STAGING_KCFG: ${{ secrets.STAGING_KUBECONFIG_B64 }}
