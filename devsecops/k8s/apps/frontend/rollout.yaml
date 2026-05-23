@@ -17,17 +17,17 @@ spec:
         - name: frontend
           image: ghcr.io/tbernacchi/k8s-devsecops-pipeline-frontend:PIPELINE_IMAGE
           ports:
-            - containerPort: 8080
+            - containerPort: 8000
           readinessProbe:
             httpGet:
-              path: /frontend/healthz
-              port: 8080
+              path: /healthz
+              port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /frontend/healthz
-              port: 8080
+              path: /healthz
+              port: 8000
             initialDelaySeconds: 15
             periodSeconds: 20
   strategy:
