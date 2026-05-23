@@ -460,7 +460,9 @@ jobs:
           context: ${{ inputs.app_path }}
           file: ${{ inputs.dockerfile_path }}
           push: true
-          tags: ${{ steps.meta.outputs.image_ref }}:${{ github.sha }}
+          tags: |
+            ${{ steps.meta.outputs.image_ref }}:${{ github.sha }}
+            ${{ steps.meta.outputs.image_ref }}:latest
           provenance: true
           sbom: true
       - uses: sigstore/cosign-installer@v3
