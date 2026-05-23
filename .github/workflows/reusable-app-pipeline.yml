@@ -31,14 +31,6 @@ on:
         required: false
         type: string
         default: "app"
-      deploy_dev:
-        required: false
-        type: boolean
-        default: false
-      deploy_staging:
-        required: false
-        type: boolean
-        default: false
       run_only_stage:
         required: false
         type: string
@@ -55,6 +47,8 @@ on:
       STAGING_KUBECONFIG_B64:
         required: false
       PROD_KUBECONFIG_B64:
+        required: false
+      DEV_BASE_URL:
         required: false
       STAGING_BASE_URL:
         required: false
@@ -515,96 +509,12 @@ jobs:
         run: exit 1
 
   # ──────────────────────────────────────────────
-  # Stage 6 – Deploy Dev
-  # ──────────────────────────────────────────────
-  deploy_dev:
-    name: "Stage 6 - Dev Auto Deploy"
-    needs: stage6_build_sign_attest
-    if: always() && (inputs.run_only_stage == '6' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && inputs.deploy_dev && needs.stage6_build_sign_attest.result == 'success'))
-    runs-on: k8s-system-design
-    steps:
-      - uses: azure/setup-kubectl@v4
-      - name: Deploy same signed artifact to dev
-        env:
-          KCFG: ${{ secrets.DEV_KUBECONFIG_B64 }}
-          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
-        run: |
-          test -n "$KCFG"
-          kube_config=$(mktemp)
-          trap "rm -f '$kube_config'" EXIT
-          echo "$KCFG" | base64 -d > "$kube_config"
-          chmod 600 "$kube_config"
-          export KUBECONFIG="$kube_config"
-          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
-          if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
-            kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-          else
-            kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
-          fi
-          kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
-          POD=$(kubectl -n ${{ inputs.namespace }} get pod -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
-          kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
-          PF_PID=$!
-          sleep 2
-          curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"
-          kill "$PF_PID" 2>/dev/null || true
-
-  # ──────────────────────────────────────────────
-  # Stage 7 – Deploy Staging
-  # ──────────────────────────────────────────────
-  deploy_staging:
-    name: "Stage 7 - Staging Auto Deploy"
-    needs: [deploy_dev, stage6_build_sign_attest]
-    if: always() && (inputs.run_only_stage == '7' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && inputs.deploy_staging && needs.deploy_dev.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
-    runs-on: k8s-system-design
-    steps:
-      - uses: azure/setup-kubectl@v4
-      - name: Deploy same signed artifact to staging
-        env:
-          KCFG: ${{ secrets.STAGING_KUBECONFIG_B64 }}
-          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
-        run: |
-          test -n "$KCFG"
-          kube_config=$(mktemp)
-          trap "rm -f '$kube_config'" EXIT
-          echo "$KCFG" | base64 -d > "$kube_config"
-          chmod 600 "$kube_config"
-          export KUBECONFIG="$kube_config"
-          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
-          if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
-            kubectl -n ${{ inputs.namespace }} set image deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
-          else
-            kubectl create deployment ${{ inputs.deploy_name }} --image="$IMAGE" -n ${{ inputs.namespace }}
-          fi
-          kubectl -n ${{ inputs.namespace }} rollout status deployment/${{ inputs.deploy_name }} --timeout=180s
-          POD=$(kubectl -n ${{ inputs.namespace }} get pod -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
-          kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
-          PF_PID=$!
-          sleep 2
-          curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"
-          kill "$PF_PID" 2>/dev/null || true
-
-  # ──────────────────────────────────────────────
-  # Stage 8 – DAST
-  # ──────────────────────────────────────────────
-  stage8_dast:
-    name: "Stage 8 - DAST"
-    needs: [deploy_staging, stage6_build_sign_attest]
-    if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.deploy_staging.result == 'success'))
-    runs-on: k8s-system-design
-    steps:
-      - uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: ${{ secrets.STAGING_BASE_URL }}${{ inputs.route_prefix }}
-          fail_action: true
-
-  # ──────────────────────────────────────────────
-  # Stage 9 – Policy Gate (verifica assinatura real)
+  # Stage 6 – Policy Gate (todos os branches)
   # ──────────────────────────────────────────────
   policy_gate:
-    name: "Stage 9 - Policy Gate"
-    needs: [stage8_dast, stage6_build_sign_attest]
-    if: always() && (inputs.run_only_stage == '9' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.stage8_dast.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
+    name: "Stage 6 - Policy Gate"
+    needs: [stage6_build_sign_attest]
+    if: always() && (inputs.run_only_stage == '6' || (inputs.run_only_stage == '' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
     steps:
       - uses: sigstore/cosign-installer@v3
@@ -618,38 +528,104 @@ jobs:
             "$IMAGE"
 
   # ──────────────────────────────────────────────
-  # Stage 10 – Prod Deploy (manual approval required)
+  # Stage 7 – Deploy (branch determina env)
   # ──────────────────────────────────────────────
-  deploy_prod:
-    name: "Stage 10 - Prod Approval and Progressive Deploy"
+  deploy:
+    name: "Stage 7 - Deploy"
     needs: [policy_gate, stage6_build_sign_attest]
-    if: always() && (inputs.run_only_stage == '10' || (inputs.run_only_stage == '' && github.ref == 'refs/heads/main' && needs.policy_gate.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
+    if: always() && (inputs.run_only_stage == '7' || (inputs.run_only_stage == '' && needs.policy_gate.result == 'success' && needs.stage6_build_sign_attest.result == 'success'))
     runs-on: k8s-system-design
-    environment: production
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || (github.ref == 'refs/heads/stg' || github.ref == 'refs/heads/staging') && 'staging' || 'development' }}
+    env:
+      DEV_KCFG: ${{ secrets.DEV_KUBECONFIG_B64 }}
+      STAGING_KCFG: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+      PROD_KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
+      IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
-      - name: Install kubectl-argo-rollouts plugin
+      - name: Install kubectl-argo-rollouts plugin (prod only)
+        if: github.ref == 'refs/heads/main'
         run: |
           curl -fsSL https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-arm64 \
             -o /tmp/kubectl-argo-rollouts
           chmod +x /tmp/kubectl-argo-rollouts
           sudo mv /tmp/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
-      - name: Canary deploy with auto rollback
-        env:
-          KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
-          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
+      - name: Deploy
         run: |
+          REF="${GITHUB_REF}"
+          if [[ "$REF" == "refs/heads/main" ]]; then
+            KCFG="$PROD_KCFG"
+          elif [[ "$REF" == "refs/heads/dev" || "$REF" == "refs/heads/development" ]]; then
+            KCFG="$DEV_KCFG"
+          elif [[ "$REF" == "refs/heads/stg" || "$REF" == "refs/heads/staging" ]]; then
+            KCFG="$STAGING_KCFG"
+          else
+            echo "Branch $REF not configured for deploy — skipping"
+            exit 0
+          fi
+
           test -n "$KCFG"
           kube_config=$(mktemp)
           trap "rm -f '$kube_config'" EXIT
           echo "$KCFG" | base64 -d > "$kube_config"
           chmod 600 "$kube_config"
           export KUBECONFIG="$kube_config"
-          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null || kubectl create namespace ${{ inputs.namespace }}
-          kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
-          kubectl argo rollouts set image ${{ inputs.deploy_name }} \
-            ${{ inputs.container_name }}="$IMAGE" \
-            -n ${{ inputs.namespace }}
-          kubectl argo rollouts status ${{ inputs.deploy_name }} \
-            -n ${{ inputs.namespace }} --timeout=15m
+
+          kubectl get namespace ${{ inputs.namespace }} 2>/dev/null \
+            || kubectl create namespace ${{ inputs.namespace }}
+
+          if [[ "$REF" == "refs/heads/main" ]]; then
+            kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
+            kubectl argo rollouts set image ${{ inputs.deploy_name }} \
+              ${{ inputs.container_name }}="$IMAGE" \
+              -n ${{ inputs.namespace }}
+            kubectl argo rollouts status ${{ inputs.deploy_name }} \
+              -n ${{ inputs.namespace }} --timeout=15m
+          else
+            if kubectl get deployment ${{ inputs.deploy_name }} -n ${{ inputs.namespace }} 2>/dev/null; then
+              kubectl -n ${{ inputs.namespace }} set image \
+                deployment/${{ inputs.deploy_name }} ${{ inputs.container_name }}="$IMAGE"
+            else
+              kubectl create deployment ${{ inputs.deploy_name }} \
+                --image="$IMAGE" -n ${{ inputs.namespace }}
+            fi
+            kubectl -n ${{ inputs.namespace }} rollout status \
+              deployment/${{ inputs.deploy_name }} --timeout=180s
+            POD=$(kubectl -n ${{ inputs.namespace }} get pod \
+              -l app=${{ inputs.deploy_name }} -o jsonpath='{.items[0].metadata.name}')
+            kubectl -n ${{ inputs.namespace }} port-forward "pod/$POD" 19080:8080 &
+            PF_PID=$!
+            sleep 2
+            curl -fsS "http://localhost:19080${{ inputs.route_prefix }}/healthz"
+            kill "$PF_PID" 2>/dev/null || true
+          fi
+
+  # ──────────────────────────────────────────────
+  # Stage 8 – DAST (branch determina URL)
+  # ──────────────────────────────────────────────
+  stage8_dast:
+    name: "Stage 8 - DAST"
+    needs: [deploy]
+    if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && needs.deploy.result == 'success'))
+    runs-on: k8s-system-design
+    env:
+      DEV_URL: ${{ secrets.DEV_BASE_URL }}
+      STAGING_URL: ${{ secrets.STAGING_BASE_URL }}
+      PROD_URL: ${{ secrets.PROD_BASE_URL }}
+    steps:
+      - name: Set DAST target
+        id: target
+        run: |
+          REF="${GITHUB_REF}"
+          if [[ "$REF" == "refs/heads/main" ]]; then
+            echo "url=$PROD_URL" >> "$GITHUB_OUTPUT"
+          elif [[ "$REF" == "refs/heads/dev" || "$REF" == "refs/heads/development" ]]; then
+            echo "url=$DEV_URL" >> "$GITHUB_OUTPUT"
+          elif [[ "$REF" == "refs/heads/stg" || "$REF" == "refs/heads/staging" ]]; then
+            echo "url=$STAGING_URL" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ steps.target.outputs.url }}${{ inputs.route_prefix }}
+          fail_action: true

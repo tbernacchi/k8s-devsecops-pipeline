@@ -8,6 +8,7 @@ on:
         required: false
         default: ""
   push:
+    branches: [main, dev, development, stg, staging]
     paths:
       - "devsecops/apps/backend/**"
       - ".github/workflows/backend.yml"
@@ -37,7 +38,5 @@ jobs:
       deploy_name: backend
       container_name: backend
       route_prefix: /backend
-      deploy_dev: false
-      deploy_staging: false
       run_only_stage: ${{ inputs.run_only_stage }}
     secrets: inherit # pragma: allowlist secret

@@ -219,3 +219,31 @@ jobs:
       - name: Fail if IaC check failed
         if: steps.checkov.outcome == 'failure' || steps.tfsec.outcome == 'failure' || steps.conftest.outcome == 'failure' || steps.kyverno.outcome == 'failure'
         run: exit 1
+
+  # ──────────────────────────────────────────────
+  # Stage 3 – Cluster Infra Apply
+  # ──────────────────────────────────────────────
+  stage3_cluster_infra:
+    name: "Stage 3 - Cluster Infra Apply"
+    needs: stage2_iac_scanning
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: k8s-system-design
+    env:
+      GATEWAY_API_VERSION: v1.2.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Apply Gateway API CRDs + Argo Rollouts infra
+        env:
+          KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
+        run: |
+          test -n "$KCFG"
+          kube_config=$(mktemp)
+          trap "rm -f '$kube_config'" EXIT
+          echo "$KCFG" | base64 -d > "$kube_config"
+          chmod 600 "$kube_config"
+          export KUBECONFIG="$kube_config"
+          kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+          kubectl apply -f devsecops/k8s/argo-rollouts/
+          kubectl rollout restart deployment/argo-rollouts -n argo-rollouts
+          kubectl rollout status deployment/argo-rollouts -n argo-rollouts --timeout=120s
