@@ -601,11 +601,9 @@ jobs:
             || kubectl create namespace ${{ inputs.namespace }}
 
           if [[ "$REF" == "refs/heads/main" ]]; then
+            sed -i "s|:PIPELINE_IMAGE|:${IMAGE##*:}|g" \
+              devsecops/k8s/apps/${{ inputs.app_name }}/rollout.yaml
             kubectl apply -f devsecops/k8s/apps/${{ inputs.app_name }}/
-            kubectl patch rollout ${{ inputs.deploy_name }} \
-              -n ${{ inputs.namespace }} \
-              --type='json' \
-              -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/image\",\"value\":\"${IMAGE}\"}]"
             kubectl wait rollout/${{ inputs.deploy_name }} \
               -n ${{ inputs.namespace }} \
               --for=condition=Progressing=True \
