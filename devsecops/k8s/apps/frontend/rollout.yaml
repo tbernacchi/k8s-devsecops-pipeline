@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ghcr.io/tbernacchi/k8s-devsecops-pipeline-frontend:latest
+          image: ghcr.io/tbernacchi/k8s-devsecops-pipeline-frontend:PIPELINE_IMAGE
           ports:
             - containerPort: 8080
           readinessProbe:
