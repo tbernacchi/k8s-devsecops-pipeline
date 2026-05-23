@@ -620,7 +620,7 @@ jobs:
     name: "Stage 8 - DAST"
     needs: [deploy]
     if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && needs.deploy.result == 'success'))
-    runs-on: k8s-system-design
+    runs-on: ubuntu-latest
     env:
       DEV_URL: ${{ secrets.DEV_BASE_URL }}
       STAGING_URL: ${{ secrets.STAGING_BASE_URL }}
