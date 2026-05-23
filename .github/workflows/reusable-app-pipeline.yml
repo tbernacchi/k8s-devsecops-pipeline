@@ -620,24 +620,50 @@ jobs:
     name: "Stage 8 - DAST"
     needs: [deploy]
     if: always() && (inputs.run_only_stage == '8' || (inputs.run_only_stage == '' && needs.deploy.result == 'success'))
-    runs-on: ubuntu-latest
+    runs-on: k8s-system-design
     env:
+      DEV_KCFG: ${{ secrets.DEV_KUBECONFIG_B64 }}
+      STAGING_KCFG: ${{ secrets.STAGING_KUBECONFIG_B64 }}
+      PROD_KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
       DEV_URL: ${{ secrets.DEV_BASE_URL }}
       STAGING_URL: ${{ secrets.STAGING_BASE_URL }}
       PROD_URL: ${{ secrets.PROD_BASE_URL }}
     steps:
-      - name: Set DAST target
-        id: target
+      - uses: azure/setup-kubectl@v4
+      - name: DAST (ZAP via kubectl pod)
         run: |
           REF="${GITHUB_REF}"
           if [[ "$REF" == "refs/heads/main" ]]; then
-            echo "url=$PROD_URL" >> "$GITHUB_OUTPUT"
+            KCFG="$PROD_KCFG"; TARGET="$PROD_URL"
           elif [[ "$REF" == "refs/heads/dev" || "$REF" == "refs/heads/development" ]]; then
-            echo "url=$DEV_URL" >> "$GITHUB_OUTPUT"
+            KCFG="$DEV_KCFG"; TARGET="$DEV_URL"
           elif [[ "$REF" == "refs/heads/stg" || "$REF" == "refs/heads/staging" ]]; then
-            echo "url=$STAGING_URL" >> "$GITHUB_OUTPUT"
+            KCFG="$STAGING_KCFG"; TARGET="$STAGING_URL"
+          else
+            echo "Branch not configured for DAST — skipping"; exit 0
           fi
-      - uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: ${{ steps.target.outputs.url }}${{ inputs.route_prefix }}
-          fail_action: true
+
+          test -n "$KCFG" && test -n "$TARGET"
+          kube_config=$(mktemp)
+          trap "rm -f '$kube_config'" EXIT
+          echo "$KCFG" | base64 -d > "$kube_config"
+          chmod 600 "$kube_config"
+          export KUBECONFIG="$kube_config"
+
+          POD_NAME="zap-${{ inputs.app_name }}-${GITHUB_RUN_ID}"
+          kubectl run "$POD_NAME" \
+            --image=ghcr.io/zaproxy/zaproxy:stable \
+            --restart=Never \
+            --namespace=default \
+            -- zap-baseline.py \
+              -t "${TARGET}${{ inputs.route_prefix }}" \
+              -I
+          kubectl wait pod/"$POD_NAME" \
+            --for=condition=Ready=false \
+            --namespace=default \
+            --timeout=10m || true
+          EXIT_CODE=$(kubectl get pod "$POD_NAME" -n default \
+            -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}')
+          kubectl logs "$POD_NAME" -n default
+          kubectl delete pod "$POD_NAME" -n default --ignore-not-found
+          [ "${EXIT_CODE}" = "0" ] || [ "${EXIT_CODE}" = "2" ]
