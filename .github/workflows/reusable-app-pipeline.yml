@@ -526,6 +526,27 @@ jobs:
             --certificate-identity-regexp="https://github.com/${{ github.repository }}/.github/workflows/" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             "$IMAGE"
+      - name: Deploy summary
+        env:
+          IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}@${{ needs.stage6_build_sign_attest.outputs.digest }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Deploy Summary — ${{ inputs.app_name }} \`${{ github.ref_name }}\`
+
+          | Field | Value |
+          |---|---|
+          | **App** | \`${{ inputs.app_name }}\` |
+          | **Branch** | \`${{ github.ref_name }}\` |
+          | **Commit** | \`${{ github.sha }}\` |
+          | **Actor** | \`${{ github.actor }}\` |
+          | **Image** | \`${IMAGE}\` |
+          | **Cosign** | ✅ verified |
+
+          **Last commits:**
+          \`\`\`
+          $(git log --oneline -5)
+          \`\`\`
+          EOF
 
   # ──────────────────────────────────────────────
   # Stage 7 – Deploy (branch determina env)
