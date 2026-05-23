@@ -588,13 +588,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
-      - name: Install kubectl-argo-rollouts plugin (prod only)
-        if: github.ref == 'refs/heads/main'
-        run: |
-          curl -fsSL https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-arm64 \
-            -o /tmp/kubectl-argo-rollouts
-          chmod +x /tmp/kubectl-argo-rollouts
-          sudo mv /tmp/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
       - name: Deploy
         run: |
           REF="${GITHUB_REF}"
