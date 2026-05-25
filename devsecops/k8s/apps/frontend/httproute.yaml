@@ -7,6 +7,7 @@ spec:
   parentRefs:
     - name: traefik-gateway
       namespace: traefik
+      sectionName: web
   rules:
     - matches:
         - path:
