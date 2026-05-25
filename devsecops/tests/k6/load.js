@@ -23,7 +23,7 @@ export const options = {
   },
 }
 
-const BASE = __ENV.BASE_URL || 'https://192.168.1.131'
+const BASE = __ENV.BASE_URL || 'https://traefik.mykubernetes.com'
 
 const endpoints = [
   { name: 'frontend-healthz', url: `${BASE}/frontend/healthz` },
