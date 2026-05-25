@@ -18,6 +18,12 @@ spec:
           image: ghcr.io/tbernacchi/k8s-devsecops-pipeline-backend:PIPELINE_IMAGE
           ports:
             - containerPort: 8080
+          env:
+            - name: DB_WRITE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: backend-db
+                  key: DB_WRITE_DSN
           readinessProbe:
             httpGet:
               path: /healthz
