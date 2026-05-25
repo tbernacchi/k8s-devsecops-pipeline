@@ -58,6 +58,8 @@ on:
         required: false
       NVD_API_KEY:
         required: false
+      DB_WRITE_DSN:
+        required: false
 
 jobs:
   # ──────────────────────────────────────────────
@@ -574,6 +576,7 @@ jobs:
       PROD_KCFG: ${{ secrets.PROD_KUBECONFIG_B64 }}
       IMAGE: ${{ needs.stage6_build_sign_attest.outputs.image_ref }}:${{ needs.stage6_build_sign_attest.outputs.version }}
       VERSION: ${{ needs.stage6_build_sign_attest.outputs.version }}
+      DB_WRITE_DSN: ${{ secrets.DB_WRITE_DSN }}
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-kubectl@v4
@@ -600,6 +603,13 @@ jobs:
 
           kubectl get namespace ${{ inputs.namespace }} 2>/dev/null \
             || kubectl create namespace ${{ inputs.namespace }}
+
+          if [ -n "$DB_WRITE_DSN" ]; then
+            kubectl create secret generic backend-db \
+              --from-literal=DB_WRITE_DSN="$DB_WRITE_DSN" \
+              -n ${{ inputs.namespace }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
 
           sed -i "s|:PIPELINE_IMAGE|:${VERSION}|g" \
             devsecops/k8s/apps/${{ inputs.app_name }}/rollout.yaml
