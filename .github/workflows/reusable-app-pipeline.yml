@@ -668,10 +668,16 @@ jobs:
             -- zap-baseline.py \
               -t "${TARGET}${{ inputs.route_prefix }}" \
               -I
-          kubectl wait pod/"$POD_NAME" \
-            --for=condition=Ready=false \
-            --namespace=default \
-            --timeout=10m || true
+          # Wait for pod to reach a terminal phase (Succeeded or Failed).
+          # --for=condition=Ready=false fires immediately on ContainerCreating
+          # so we poll the phase instead.
+          for i in $(seq 1 60); do
+            PHASE=$(kubectl get pod "$POD_NAME" -n default \
+              -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+            echo "[$i/60] ZAP pod phase: $PHASE"
+            [ "$PHASE" = "Succeeded" ] || [ "$PHASE" = "Failed" ] && break
+            sleep 10
+          done
           EXIT_CODE=$(kubectl get pod "$POD_NAME" -n default \
             -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}')
           kubectl logs "$POD_NAME" -n default
