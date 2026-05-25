@@ -60,7 +60,7 @@ new image pushed (version from .version file)
 Manifests: `devsecops/k8s/apps/{backend,frontend}/`
 - `rollout.yaml` — Rollout CRD (replaces Deployment), probes on container port, env vars
 - `services.yaml` — stable + canary ClusterIP services
-- `httproute.yaml` — Gateway API HTTPRoute → stable/canary services (requires `sectionName: web`)
+- `httproute.yaml` — Gateway API HTTPRoute → stable/canary services (`sectionName: websecure`, `URLRewrite` filter strips path prefix)
 - `analysis-template.yaml` — Prometheus error-rate query
 
 **Namespaces:**
@@ -106,7 +106,7 @@ Stages 1–5 (app pipeline) and Stages 1–2 (infra pipeline) all have per-tool 
 - **Apps**: Python/Flask (frontend, port 8000), Go/Gin (backend, port 8080)
 - **Registry**: GitHub Container Registry (GHCR) — multi-arch `linux/amd64,linux/arm64`
 - **Cluster**: K3s on Raspberry Pi 4 (ARM64), self-hosted
-- **Ingress**: Traefik with Gateway API (`traefik-gateway`, listener `web:80`)
+- **Ingress**: Traefik with Gateway API (`traefik-gateway`, listeners `web:80` + `websecure:443`). All HTTPRoutes on `websecure` — HTTP is globally redirected to HTTPS at the entrypoint level.
 - **Database**: CloudNativePG (`cnpg-cluster`) in `postgres` namespace
 - **Runners**: Actions Runner Controller (ARC) — `k8s-system-design` scale set (single runner = serialized jobs)
 - **Security**: Cosign keyless signing, SLSA provenance, OWASP ZAP DAST (kubectl pod), SonarCloud
@@ -352,7 +352,32 @@ kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/rele
 kubectl apply -f devsecops/k8s/argo-rollouts/traefik-plugin-config.yaml
 ```
 
-**Step 4 — Apply app manifests (first deploy only):**
+**Step 4 — Add `websecure` listener to Traefik Gateway:**
+
+The Traefik Helm chart (38.0.1) schema does not allow `gateway.listeners.<name>.tls` in `values.yaml`. Patch the Gateway directly after install/upgrade:
+
+```bash
+kubectl patch gateway traefik-gateway -n traefik --type=json -p='[
+  {
+    "op": "add",
+    "path": "/spec/listeners/-",
+    "value": {
+      "name": "websecure",
+      "port": 443,
+      "protocol": "HTTPS",
+      "tls": {
+        "mode": "Terminate",
+        "certificateRefs": [{"kind":"Secret","name":"traefik-cert","namespace":"traefik"}]
+      },
+      "allowedRoutes": {"namespaces": {"from": "All"}}
+    }
+  }
+]'
+```
+
+> Re-apply this patch after every `helm upgrade traefik` — Helm reverts the Gateway to its managed state.
+
+**Step 5 — Apply app manifests (first deploy only):**
 ```bash
 kubectl create namespace app-backend 2>/dev/null || true
 kubectl create namespace app-frontend 2>/dev/null || true
@@ -367,6 +392,15 @@ kubectl get rollout -n app-frontend
 kubectl get analysistemp -n app-backend
 kubectl get pods -n monitoring    # prometheus running
 kubectl get pods -n argo-rollouts # controller running
+
+# confirm both gateway listeners exist
+kubectl get gateway traefik-gateway -n traefik -o jsonpath='{.status.listeners[*].name}'
+# expected: web websecure
+
+# confirm routes are accepted on websecure
+kubectl get httproute -A
+curl -sk -w "\n%{http_code}" https://<cluster-ip>/frontend/healthz
+curl -sk -w "\n%{http_code}" https://<cluster-ip>/backend/healthz
 ```
 
 ---
@@ -527,22 +561,71 @@ With `NVD_API_KEY` set, delta updates take seconds. Without it, even cached runs
 
 Solution: Snyk CLI is installed via `npm install -g snyk` and runs directly on the Ubuntu runner, where pip packages from the `Install deps` step are available. `--skip-unresolved` is passed to handle any transitive packages that can't be resolved without a full virtual environment.
 
-#### HTTPRoute — 404 after namespace move
+#### HTTPRoute — 404 (wrong sectionName or missing websecure listener)
 
-When moving HTTPRoutes to a new namespace (`app-frontend`, `app-backend`), Traefik won't process them without `sectionName` in the `parentRef`. Without it, the route has no `status` and Traefik returns 404.
+Two independent root causes, both presenting as 404:
 
-Fix — add `sectionName: web` to match the gateway listener name:
+**Cause 1 — wrong `sectionName`**
+
+Traefik's `web` entrypoint (port 80) has a global HTTP→HTTPS redirect (`--entrypoints.web.http.redirections.entryPoint.to=websecure`). This redirect fires at the entrypoint level — before Gateway API route matching. Any HTTPRoute attached to `sectionName: web` never serves real traffic; HTTP requests are redirected to HTTPS before reaching the route.
+
+HTTPRoutes must use `sectionName: websecure`:
 
 ```yaml
 parentRefs:
   - name: traefik-gateway
     namespace: traefik
-    sectionName: web
+    sectionName: websecure
 ```
 
-Verify the route is accepted:
+Without `sectionName` at all, the route matches **all listeners** — including `websecure`. This seems to work but poisons routing if stale namespaces exist with overlapping path prefixes (Traefik merges backend pools from all matching routes).
+
+**Cause 2 — no `websecure` Gateway listener**
+
+The Traefik Helm chart (38.0.1) only creates a `web` (port 80) listener via `values.yaml`. The `websecure` listener must be patched in manually — see Setup step 4.
+
+Verify the listener exists and the route is accepted:
 ```bash
-kubectl get httproute frontend-httproute -n app-frontend -o jsonpath='{.status.parents[0].conditions}'
+kubectl get gateway traefik-gateway -n traefik -o jsonpath='{.status.listeners[*].name}'
+# expected: web websecure
+
+kubectl get httproute frontend-httproute -n app-frontend \
+  -o jsonpath='{.status.parents[0].conditions[?(@.type=="Accepted")].status}'
+# expected: True
+```
+
+---
+
+#### HTTPRoute — 502 Bad Gateway (path prefix not stripped)
+
+Apps (`/healthz`) do not know their external prefix (`/frontend`, `/backend`). Without a rewrite filter, Traefik forwards `/frontend/healthz` as-is and the app returns 404, which Traefik surfaces as 502.
+
+Add `URLRewrite` filter to strip the prefix before forwarding:
+
+```yaml
+rules:
+  - matches:
+      - path:
+          type: PathPrefix
+          value: /frontend
+    filters:
+      - type: URLRewrite
+        urlRewrite:
+          path:
+            type: ReplacePrefixMatch
+            replacePrefixMatch: /
+    backendRefs:
+      - name: frontend-stable
+        port: 8000
+        weight: 100
+```
+
+This rewrites `/frontend/healthz` → `/healthz` before the request reaches the pod.
+
+Diagnose with Traefik access log — check the upstream URL:
+```bash
+kubectl logs -n traefik -l app.kubernetes.io/name=traefik --tail=5 | grep -v DBG
+# look for: "http://10.42.x.x:<port>" and the HTTP status code from the upstream
 ```
 
 ---
