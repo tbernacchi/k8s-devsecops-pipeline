@@ -383,7 +383,14 @@ kubectl exec -n postgres cnpg-cluster-1 -- psql -U postgres -c "\l" | grep syste
 postgres://system-design:system-design@cnpg-cluster-rw.postgres.svc.cluster.local:5432/system-design?sslmode=disable
 ```
 
-**The pipeline creates the k8s Secret automatically** from the `DB_WRITE_DSN` GitHub secret before each deploy — idempotent, no manual step needed after first cluster setup. The secret is stored in `app-backend` namespace as `backend-db`.
+**One-time manual secret creation** (before first pipeline run):
+```bash
+kubectl create secret generic backend-db \
+  --from-literal=DB_WRITE_DSN='postgres://system-design:system-design@cnpg-cluster-rw.postgres.svc.cluster.local:5432/system-design?sslmode=disable' \
+  -n app-backend
+```
+
+After that, **the pipeline recreates/updates it automatically** on every deploy via `--dry-run=client | kubectl apply` — idempotent, no manual step needed again.
 
 **Test connectivity from within the cluster:**
 ```bash
