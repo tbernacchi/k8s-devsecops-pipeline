@@ -1,6 +1,6 @@
 # k8s-devsecops-pipeline
 
-Practice repository for **System Design**, **Software Architecture**, and **DevSecOps**.
+Practice repository for kubernetes **DevSecOps** pipeline.
 
 ## devsecops/
 
