@@ -123,6 +123,9 @@ Secrets shared across all pipeline runs. Not tied to any specific environment.
 | `DEV_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to dev cluster in stage 6 |
 | `STAGING_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to staging cluster in stage 7 |
 | `STAGING_BASE_URL` | `https://traefik.mykubernetes.com` | Base URL for smoke tests (stage 8) and DAST (stage 9) |
+| `PROD_KUBECONFIG_B64` | `cat ~/.kube/config \| base64 -w0` | kubectl access to prod cluster in stage 7 |
+| `PROD_BASE_URL` | base URL of the prod cluster ingress | DAST target URL in stage 8 |
+| `DB_WRITE_DSN` | `postgres://user:pass@host:5432/db?sslmode=disable` | Backend PostgreSQL write DSN — pipeline creates k8s Secret `backend-db` in `app-backend` before deploy |
 
 **Getting SONAR_TOKEN:**
 1. Log in at [sonarcloud.io](https://sonarcloud.io) with your GitHub account
@@ -331,23 +334,68 @@ kubectl apply -f devsecops/k8s/argo-rollouts/traefik-plugin-config.yaml
 
 **Step 4 — Apply app manifests (first deploy only):**
 ```bash
-kubectl create namespace app 2>/dev/null || true
+kubectl create namespace app-backend 2>/dev/null || true
+kubectl create namespace app-frontend 2>/dev/null || true
 kubectl apply -f devsecops/k8s/apps/backend/
 kubectl apply -f devsecops/k8s/apps/frontend/
 ```
 
 **Verify:**
 ```bash
-kubectl get rollout -n app
-kubectl get analysistemp -n app
-kubectl get traefikservice -n app
+kubectl get rollout -n app-backend
+kubectl get rollout -n app-frontend
+kubectl get analysistemp -n app-backend
 kubectl get pods -n monitoring    # prometheus running
 kubectl get pods -n argo-rollouts # controller running
 ```
 
 ---
 
-### 10. Cluster — GHCR image pull
+### 10. Cluster — PostgreSQL (CloudNativePG)
+
+The backend requires a PostgreSQL database managed by CloudNativePG in the `postgres` namespace.
+
+**One-time setup — create user and database:**
+```bash
+# create user
+kubectl exec -n postgres cnpg-cluster-1 -- psql -U postgres \
+  -c "CREATE USER \"system-design\" WITH PASSWORD 'system-design';"
+
+# create database
+kubectl exec -n postgres cnpg-cluster-1 -- \
+  createdb -U postgres -O "system-design" "system-design"
+
+# verify
+kubectl exec -n postgres cnpg-cluster-1 -- psql -U postgres -c "\du"
+kubectl exec -n postgres cnpg-cluster-1 -- psql -U postgres -c "\l" | grep system-design
+```
+
+**Services available in `postgres` namespace:**
+
+| Service | Purpose |
+|---------|---------|
+| `cnpg-cluster-rw` | Read-write (primary) — use for `DB_WRITE_DSN` |
+| `cnpg-cluster-ro` | Read-only (replicas) — use for `DB_READ_DSN` |
+| `clube-pooler` | PgBouncer connection pooler |
+
+**DSN format (cross-namespace FQDN):**
+```
+postgres://system-design:system-design@cnpg-cluster-rw.postgres.svc.cluster.local:5432/system-design?sslmode=disable
+```
+
+**The pipeline creates the k8s Secret automatically** from the `DB_WRITE_DSN` GitHub secret before each deploy — idempotent, no manual step needed after first cluster setup. The secret is stored in `app-backend` namespace as `backend-db`.
+
+**Test connectivity from within the cluster:**
+```bash
+kubectl run pg-test --image=postgres:15 --restart=Never -n app-backend \
+  --env="PGPASSWORD=system-design" --rm -it -- \
+  psql "postgres://system-design@cnpg-cluster-rw.postgres.svc.cluster.local:5432/system-design?sslmode=disable" \
+  -c "\conninfo"
+```
+
+---
+
+### 11. Cluster — GHCR image pull
 
 After stage 6 pushes the image to `ghcr.io`, the cluster needs credentials to pull it during deploy.
 
@@ -371,7 +419,7 @@ GitHub → your package → Settings → Make public. No authentication needed.
 
 ---
 
-### 10. SonarCloud — project setup
+### 12. SonarCloud — project setup
 
 The pipeline uses `projectKey=tbernacchi_frontend` and `tbernacchi_backend`.
 
