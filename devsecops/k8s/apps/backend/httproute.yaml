@@ -7,12 +7,18 @@ spec:
   parentRefs:
     - name: traefik-gateway
       namespace: traefik
-      sectionName: web
+      sectionName: websecure
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /backend
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
       backendRefs:
         - name: backend-stable
           port: 8080
