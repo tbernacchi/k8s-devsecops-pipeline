@@ -706,6 +706,7 @@ permissions:
 |----------|-------------|
 | [`docs/vault-eso-tradeoffs.html`](devsecops/docs/vault-eso-tradeoffs.html) | When to use HashiCorp Vault + External Secrets Operator vs GitHub Secrets |
 | [`docs/pipeline-runner-strategy.html`](devsecops/docs/pipeline-runner-strategy.html) | Runner split rationale, trade-offs, ArgoCD + Argo Rollouts integration path |
+| [`docs/traefik-tls.md`](devsecops/docs/traefik-tls.md) | HTTPS with valid cert — install cluster CA, wildcard cert, or cert-manager + Let's Encrypt |
 | [`gh-runner/README.md`](gh-runner/README.md) | ARC self-hosted runner install instructions |
 
 ---
