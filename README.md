@@ -267,7 +267,7 @@ but is only allowed 'security-events: none'.
 
 ### 8. Cluster — ARC self-hosted runner
 
-Stages 6–10 run on `k8s-system-design`, an Actions Runner Controller (ARC) scale set installed in the K3s cluster. These stages need direct access to the cluster network (`192.168.1.x`) and the Traefik ingress (`traefik.mykubernetes.com`) — reachable only from within the cluster.
+Stages 6–10 run on `k8s-system-design`, an Actions Runner Controller (ARC) scale set installed in the K3s cluster. These stages need direct access to the cluster network (`192.168.1.x`) and the Traefik ingress — reachable only from within the cluster.
 
 See [gh-runner/README.md](gh-runner/README.md) for full install instructions.
 
@@ -277,6 +277,25 @@ kubectl get autoscalingrunnerset -n arc-runners
 # NAME                MINIMUM RUNNERS   MAXIMUM RUNNERS
 # k8s-system-design   0                 3
 ```
+
+**Deploy order — backend first:**
+
+The frontend depends on the backend (`BACKEND_HOST`/`BACKEND_PORT`). Always trigger or merge backend changes before frontend so the backend service is reachable when the frontend starts.
+
+**Parallelism — single runner = serialized jobs:**
+
+The `k8s-system-design` runner processes one job at a time. When both frontend and backend pipelines trigger simultaneously (e.g. on a change to `reusable-app-pipeline.yml`), all jobs that require the self-hosted runner are queued and run in series — total time = frontend + backend combined.
+
+To run both pipelines in parallel, register a second runner in the same scale set:
+```bash
+# scale up the runner set to 2 replicas
+kubectl patch autoscalingrunnerset k8s-system-design \
+  -n arc-runners \
+  --type=merge \
+  -p '{"spec":{"minRunners":0,"maxRunners":2}}'
+```
+
+With two runners, Stage 6+ of frontend and backend can execute concurrently.
 
 ---
 
