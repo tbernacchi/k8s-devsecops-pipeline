@@ -16,7 +16,7 @@ Three independent pipelines, all using a shared reusable workflow:
 | Backend | `backend.yml` | `devsecops/apps/backend/**` |
 | Infra | `infra.yml` | `devsecops/infra/**`, `devsecops/k8s/**` |
 
-### App pipeline — 10 stages
+### App pipeline — 8 stages
 
 | Stage | Name | Tools | Runner |
 |-------|------|-------|--------|
@@ -24,25 +24,33 @@ Three independent pipelines, all using a shared reusable workflow:
 | 2 | Unit Tests + Code Quality | pytest / go test, SonarQube Quality Gate | `ubuntu-latest` |
 | 3 | SAST | Semgrep, CodeQL | `ubuntu-latest` |
 | 4 | SCA | Trivy (fs), OWASP Dependency Check, Snyk CLI | `ubuntu-latest` |
-| 5 | Build + Sign + Attest | Docker buildx → GHCR, Cosign (keyless), SLSA provenance | `ubuntu-latest` |
-| 6 | Deploy Dev *(optional)* | kubectl + smoke test (port-forward → healthz) | `k8s-system-design` |
-| 7 | Deploy Staging *(optional)* | kubectl + smoke test (port-forward → healthz) | `k8s-system-design` |
-| 8 | DAST | OWASP ZAP | `k8s-system-design` |
-| 9 | Policy Gate | Cosign signature verify | `k8s-system-design` |
-| 10 | Prod Deploy | Argo Rollouts canary (20%→50%→100%), Prometheus error-rate analysis, auto rollback (manual approval) | `k8s-system-design` |
+| 5 | Build + Sign + Attest | Docker buildx multi-arch (amd64/arm64) → GHCR, Cosign (keyless), SLSA provenance | `ubuntu-latest` |
+| 6 | Policy Gate | Cosign signature verify, deploy summary | `k8s-system-design` |
+| 7 | Deploy | Branch-based: `main`→prod, `dev`→dev, `stg`→staging. Argo Rollouts canary (20%→50%→100%), Prometheus error-rate analysis | `k8s-system-design` |
+| 8 | DAST | OWASP ZAP (kubectl pod inside cluster) | `k8s-system-design` |
 
-Stages 1–5 run on GitHub-hosted AMD64 runners. Stages 6–10 run on a self-hosted ARC runner inside the K3s cluster (ARM64).
+Stages 1–5 run on GitHub-hosted runners (AMD64). Stages 6–8 run on the self-hosted ARC runner inside the K3s cluster (ARM64) — required for internal network access (`192.168.1.x`).
 
-**Deploy flags** — Stages 6 and 7 are skipped by default. Pass `deploy_dev: true` or `deploy_staging: true` via `workflow_dispatch` inputs or in the caller's `with:` block to enable. Stages 8–10 always run on `main`.
+**GitOps branch model** — branch determines environment and kubeconfig. No deploy flags needed.
 
-**Single-stage dispatch** — Pass `run_only_stage: N` (1–10) to run only that stage. Empty (default) = full pipeline. Useful to re-run a failing stage without repeating the entire pipeline from scratch.
+| Branch | Environment | Kubeconfig secret |
+|--------|-------------|-------------------|
+| `main` | prod | `PROD_KUBECONFIG_B64` |
+| `dev` / `development` | dev | `DEV_KUBECONFIG_B64` |
+| `stg` / `staging` | staging | `STAGING_KUBECONFIG_B64` |
 
-### Canary deployment (Stage 10)
+**Image versioning** — version read from `.version` file per app (`devsecops/apps/{frontend,backend}/.version`). Pipeline builds `:<version>` and `:<sha>` tags. No `:latest`. Rollout manifests use `:PIPELINE_IMAGE` placeholder — replaced via `sed` before `kubectl apply`.
 
-Prod deploy uses **Argo Rollouts** with Traefik weighted traffic splitting. No app code changes needed — Prometheus scrapes `traefik_service_requests_total` metrics at the ingress level.
+**Single-stage dispatch** — Pass `run_only_stage: N` (1–8) via `workflow_dispatch` to run only that stage. Useful to re-run a failing stage without repeating the full pipeline.
+
+### Canary deployment (Stage 7 — prod)
+
+Prod deploy uses **Argo Rollouts** with Traefik Gateway API weighted traffic splitting. No app code changes needed — Prometheus scrapes `traefik_service_requests_total` metrics at the ingress level.
 
 ```
-new image pushed
+new image pushed (version from .version file)
+  → sed replaces :PIPELINE_IMAGE → :<version> in rollout.yaml
+  → kubectl apply -f devsecops/k8s/apps/<app>/
   → 20% canary traffic
   → AnalysisRun: error rate < 5% over 3×60s ? → promote to 50%
   → AnalysisRun: error rate < 5% over 3×60s ? → promote to 100%
@@ -50,11 +58,22 @@ new image pushed
 ```
 
 Manifests: `devsecops/k8s/apps/{backend,frontend}/`
-- `rollout.yaml` — Rollout CRD (replaces Deployment)
+- `rollout.yaml` — Rollout CRD (replaces Deployment), probes on container port, env vars
 - `services.yaml` — stable + canary ClusterIP services
-- `traefik-service.yaml` — TraefikService weighted split
-- `ingress-route.yaml` — IngressRoute → TraefikService
+- `httproute.yaml` — Gateway API HTTPRoute → stable/canary services (requires `sectionName: web`)
 - `analysis-template.yaml` — Prometheus error-rate query
+
+**Namespaces:**
+- `app-frontend` — frontend Rollout, services, HTTPRoute
+- `app-backend` — backend Rollout, services, HTTPRoute, `backend-db` Secret
+
+**App ports:**
+- frontend: container port `8000`, service port `8000`
+- backend: container port `8080`, service port `8080`
+
+**Frontend env vars** (set in rollout.yaml):
+- `BACKEND_HOST=backend-stable.app-backend.svc.cluster.local`
+- `BACKEND_PORT=8080`
 
 ### Infra pipeline — 2 stages
 
@@ -84,12 +103,13 @@ Stages 1–5 (app pipeline) and Stages 1–2 (infra pipeline) all have per-tool 
 
 ### Stack
 
-- **Apps**: Python/Flask (frontend), Go/Gin (backend)
-- **Registry**: GitHub Container Registry (GHCR)
-- **Cluster**: K3s on Raspberry Pi 4 (ARM64), 3 nodes
-- **Ingress**: Traefik with IngressRoute CRDs
-- **Runners**: Actions Runner Controller (ARC) — `k8s-system-design` scale set
-- **Security**: Cosign keyless signing, SLSA provenance, OWASP ZAP DAST, SonarCloud
+- **Apps**: Python/Flask (frontend, port 8000), Go/Gin (backend, port 8080)
+- **Registry**: GitHub Container Registry (GHCR) — multi-arch `linux/amd64,linux/arm64`
+- **Cluster**: K3s on Raspberry Pi 4 (ARM64), self-hosted
+- **Ingress**: Traefik with Gateway API (`traefik-gateway`, listener `web:80`)
+- **Database**: CloudNativePG (`cnpg-cluster`) in `postgres` namespace
+- **Runners**: Actions Runner Controller (ARC) — `k8s-system-design` scale set (single runner = serialized jobs)
+- **Security**: Cosign keyless signing, SLSA provenance, OWASP ZAP DAST (kubectl pod), SonarCloud
 
 ---
 
@@ -506,6 +526,50 @@ With `NVD_API_KEY` set, delta updates take seconds. Without it, even cached runs
 `snyk/actions/python@master` is a Docker action — it runs in an isolated container and does not inherit packages installed by prior `pip install` steps on the runner.
 
 Solution: Snyk CLI is installed via `npm install -g snyk` and runs directly on the Ubuntu runner, where pip packages from the `Install deps` step are available. `--skip-unresolved` is passed to handle any transitive packages that can't be resolved without a full virtual environment.
+
+#### HTTPRoute — 404 after namespace move
+
+When moving HTTPRoutes to a new namespace (`app-frontend`, `app-backend`), Traefik won't process them without `sectionName` in the `parentRef`. Without it, the route has no `status` and Traefik returns 404.
+
+Fix — add `sectionName: web` to match the gateway listener name:
+
+```yaml
+parentRefs:
+  - name: traefik-gateway
+    namespace: traefik
+    sectionName: web
+```
+
+Verify the route is accepted:
+```bash
+kubectl get httproute frontend-httproute -n app-frontend -o jsonpath='{.status.parents[0].conditions}'
+```
+
+---
+
+#### Stage 7 — PIPELINE_IMAGE not replaced
+
+`sed` replaces `:PIPELINE_IMAGE` in `rollout.yaml` using the `VERSION` env var (from Stage 5 output). If Stage 7 runs standalone (`run_only_stage: 7`), `VERSION` is empty and the placeholder stays literal — cluster tries to pull `:PIPELINE_IMAGE` and fails.
+
+Always run the full pipeline or ensure Stage 5 ran first before running Stage 7 in isolation.
+
+---
+
+#### Stage 7 — kubectl rollout restart fails on Rollout CRD
+
+`kubectl rollout restart rollout/<name>` is not supported for Argo Rollouts CRDs. To force pod recreation:
+
+```bash
+kubectl delete pods -n <namespace> -l app=<name>
+```
+
+---
+
+#### Backend — DB_WRITE_DSN missing
+
+Backend exits immediately (`exit code 1`) if `DB_WRITE_DSN` is not set. The pipeline creates the `backend-db` k8s Secret from the `DB_WRITE_DSN` GitHub secret before each deploy. If the secret doesn't exist in the cluster yet (first run), create it manually — see section 10.
+
+---
 
 #### Stage 1 — detect-secrets false positives
 
