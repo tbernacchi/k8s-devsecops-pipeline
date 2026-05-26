@@ -623,6 +623,25 @@ jobs:
             --for=condition=Healthy=True \
             --timeout=15m
 
+      - name: Update rollout image in Git
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.stage6_build_sign_attest.outputs.version }}
+        run: |
+          REF="${GITHUB_REF}"
+          if [[ "$REF" != "refs/heads/main" && "$REF" != "refs/heads/dev" && "$REF" != "refs/heads/development" && "$REF" != "refs/heads/stg" && "$REF" != "refs/heads/staging" ]]; then
+            echo "Branch not configured for deploy — skipping git push"
+            exit 0
+          fi
+          BRANCH="${GITHUB_REF_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          git pull --rebase origin "${BRANCH}"
+          git add devsecops/k8s/apps/${{ inputs.app_name }}/rollout.yaml
+          git commit -m "chore(gitops): update ${{ inputs.app_name }} image to :${VERSION} [skip ci]"
+          git push origin "HEAD:${BRANCH}"
+
   # ──────────────────────────────────────────────
   # Stage 8 – DAST (branch determina URL)
   # ──────────────────────────────────────────────

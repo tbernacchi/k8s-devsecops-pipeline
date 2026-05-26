@@ -21,7 +21,7 @@ on:
       - ".github/workflows/reusable-app-pipeline.yml"
 
 permissions:
-  contents: read
+  contents: write
   security-events: write
   packages: write
   id-token: write
