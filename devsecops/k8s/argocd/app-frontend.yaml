@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-frontend
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:tbernacchi/k8s-devsecops-pipeline.git
+    targetRevision: main
+    path: devsecops/k8s/apps/frontend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-frontend
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
+        - /spec/paused

@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-backend
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:tbernacchi/k8s-devsecops-pipeline.git
+    targetRevision: main
+    path: devsecops/k8s/apps/backend
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-backend
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
+        - /spec/paused

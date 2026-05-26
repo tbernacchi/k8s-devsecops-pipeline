@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts-infra
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:tbernacchi/k8s-devsecops-pipeline.git
+    targetRevision: main
+    path: devsecops/k8s/argo-rollouts
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=true
