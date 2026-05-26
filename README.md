@@ -405,7 +405,56 @@ curl -sk -w "\n%{http_code}" https://<cluster-ip>/backend/healthz
 
 ---
 
-### 10. Cluster — PostgreSQL (CloudNativePG)
+### 10. Cluster — ArgoCD GitOps drift protection
+
+ArgoCD monitors all manifests applied by the pipeline. If anyone changes a resource manually (`kubectl edit`, `kubectl patch`), ArgoCD detects drift and reverts to the Git state automatically (`selfHeal: true`). The pipeline remains the deploy owner — ArgoCD only guards against manual changes.
+
+**Login:**
+```bash
+argocd login traefik.mykubernetes.com \
+  --grpc-web \
+  --grpc-web-root-path /argocd \
+  --insecure
+# Username: admin
+# Password: kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+```
+
+**Add repo (SSH key):**
+```bash
+argocd repo add git@github.com:tbernacchi/k8s-devsecops-pipeline.git \
+  --ssh-private-key-path ~/.ssh/id_rsa \
+  --insecure-skip-server-verification
+```
+
+**Apply Application manifests (one-time):**
+```bash
+kubectl apply -f devsecops/k8s/argocd/
+```
+
+**Verify:**
+```bash
+argocd app list
+# NAME                 CLUSTER  NAMESPACE      STATUS  HEALTH
+# app-argo-rollouts    ...      argo-rollouts  Synced  Healthy
+# app-backend          ...      app-backend    Synced  Healthy
+# app-frontend         ...      app-frontend   Synced  Healthy
+```
+
+**Covered resources:**
+
+| Application | Path | Namespace |
+|---|---|---|
+| `app-argo-rollouts` | `devsecops/k8s/argo-rollouts/` | `argo-rollouts` |
+| `app-backend` | `devsecops/k8s/apps/backend/` | `app-backend` |
+| `app-frontend` | `devsecops/k8s/apps/frontend/` | `app-frontend` |
+
+**Not covered:** `backend-db` Secret — has DB credentials, must not go to Git. Created manually (see section 11).
+
+> `ignoreDifferences` is set on `Rollout/spec.replicas` and `Rollout/spec.paused` so ArgoCD does not fight with Argo Rollouts during canary traffic splitting.
+
+---
+
+### 11. Cluster — PostgreSQL (CloudNativePG)
 
 The backend requires a PostgreSQL database managed by CloudNativePG in the `postgres` namespace.
 
@@ -456,7 +505,7 @@ kubectl run pg-test --image=postgres:15 --restart=Never -n app-backend \
 
 ---
 
-### 11. Cluster — GHCR image pull
+### 12. Cluster — GHCR image pull
 
 After stage 6 pushes the image to `ghcr.io`, the cluster needs credentials to pull it during deploy.
 
@@ -480,7 +529,7 @@ GitHub → your package → Settings → Make public. No authentication needed.
 
 ---
 
-### 12. SonarCloud — project setup
+### 13. SonarCloud — project setup
 
 The pipeline uses `projectKey=tbernacchi_frontend` and `tbernacchi_backend`.
 
