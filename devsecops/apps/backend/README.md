@@ -30,6 +30,36 @@ go run main.go
 
 A API sobe em `http://localhost:8080`.
 
+## Observability (Prometheus)
+
+ServiceMonitor at `devsecops/k8s/apps/backend/service-monitor.yaml` is created but **not deployed**.
+To enable app-level metric scraping:
+
+1. Expose `/metrics` via `prometheus/client_golang`:
+
+```go
+import "github.com/prometheus/client_golang/prometheus/promhttp"
+
+http.Handle("/metrics", promhttp.Handler())
+```
+
+2. Confirm Helm release name matches:
+
+```bash
+helm list -n monitoring  # release name must be prometheus-stack
+```
+
+3. Deploy:
+
+```bash
+kubectl apply -f devsecops/k8s/apps/backend/service-monitor.yaml
+kubectl get servicemonitor -n app-backend
+```
+
+> **Note:** automatic rollback via AnalysisTemplate does **not** depend on this ServiceMonitor —
+> it uses Traefik metrics (`traefik_service_requests_total`). ServiceMonitor is optional and
+> enables dashboards with internal app metrics (DB latency, goroutines, custom business metrics).
+
 ## Endpoints principais
 
 - `GET /healthz`

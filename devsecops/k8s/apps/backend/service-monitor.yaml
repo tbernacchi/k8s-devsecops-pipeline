@@ -1,0 +1,42 @@
+# NOT DEPLOYED — optional, enables app-level metrics in Grafana dashboards.
+# AnalysisTemplate already uses Traefik metrics for canary rollback (no dependency here).
+#
+# Prerequisites before applying:
+#   1. App must expose GET /metrics (prometheus/client_golang)
+#   2. Apply the metrics Service below so Prometheus Operator can discover it
+#      (separate from stable/canary services managed by Argo Rollouts)
+#
+# Apply with:
+#   kubectl apply -f service-monitor.yaml -n app-backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-metrics
+  namespace: app-backend
+  labels:
+    app: backend
+    monitoring: "true"
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: backend
+  namespace: app-backend
+  labels:
+    release: prometheus-stack   # must match kube-prometheus-stack Helm release name
+spec:
+  selector:
+    matchLabels:
+      monitoring: "true"
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
